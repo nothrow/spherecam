@@ -21,7 +21,9 @@ kotlin {
 
 dependencies {
   implementation(libs.kotlinx.serialization.json)
-  implementation(libs.androidx.camera.core)
+  api(libs.kotlinx.coroutines.android)
+  api(libs.androidx.camera.core)
+  implementation(libs.androidx.concurrent.futures.ktx)
   implementation(libs.androidx.camera.camera2)
   implementation(libs.androidx.camera.lifecycle)
   implementation(libs.androidx.camera.view)

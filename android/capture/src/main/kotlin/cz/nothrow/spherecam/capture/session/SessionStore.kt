@@ -42,6 +42,11 @@ class SessionStore(private val root: File) {
     File(dir(sessionId), last.file).delete()
   }
 
+  fun updateCamera(sessionId: String, f: (CameraInfo) -> CameraInfo) {
+    val m = readManifest(sessionId)
+    writeManifest(m.copy(camera = f(m.camera)))
+  }
+
   fun markCaptured(sessionId: String) {
     writeManifest(readManifest(sessionId).copy(status = SessionStatus.CAPTURED))
   }
