@@ -6,6 +6,8 @@ Target: Google Play (personal account → internal/closed testing first).
 
 ## Working rules
 - Talk to me in Czech. Code, comments and commit messages in English.
+- Comments and commit messages only for non-obvious things (why, constraints, device quirks,
+  conventions). Never write a comment that describes what the code does; the code says that.
 - Be direct and concise. Never invent APIs. If unsure whether an API exists or which
   library version to use, verify it (docs, source) or say so.
 - Propose deviations from the decisions below and ask first; do not implement them silently.
