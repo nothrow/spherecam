@@ -15,10 +15,21 @@ android {
     ndk { abiFilters += "arm64-v8a" }
   }
 
+  // Credentials live in ~/.gradle/gradle.properties (spherecam.keyAlias, spherecam.storePassword,
+  // spherecam.keyPassword), never in the repo. Without them the release build is simply unsigned.
+  val signing = signingConfigs.create("release") {
+    storeFile = file(System.getProperty("user.home") + "/.ssh/signing.jks")
+    storePassword = providers.gradleProperty("spherecam.storePassword").orNull
+    keyAlias = providers.gradleProperty("spherecam.keyAlias").orNull
+    keyPassword = providers.gradleProperty("spherecam.keyPassword").orNull
+  }
+
   buildTypes {
     release {
-      isMinifyEnabled = false
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      isMinifyEnabled = true
+      isShrinkResources = true
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+      if (signing.storePassword != null) signingConfig = signing
     }
   }
   compileOptions {
