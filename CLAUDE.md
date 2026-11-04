@@ -86,4 +86,5 @@ Full brief: `docs/prompts/phase2-stitcher.md` (read it before starting). Summary
   open and listed in the phase 2 brief.
 
 ## Out of scope for this phase
-Android `:stitcher` JNI module, viewer, MediaStore, GPano XMP, Play release, compass, icon and branding.
+Viewer, compass, icon and branding. Done beyond the original scope: `:stitcher` JNI module, MediaStore
+save with GPano XMP, sharing and the Play release of version 2.0.
