@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">spherecam</string>
+    <string name="app_name">SphereCam – 360° Panorama</string>
     <string name="new_panorama">New panorama</string>
     <string name="capture_ground">Capture ground (nadir)</string>
     <string name="no_sessions">No sessions yet</string>

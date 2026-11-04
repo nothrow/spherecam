@@ -52,13 +52,17 @@ class RotationBuffer(private val capacity: Int = 256) {
   }
 
   /**
+   * Net rotation over the last [windowNs], not between adjacent samples: hand tremor (~8-12 Hz) swings the
+   * instantaneous rate well above any usable "held still" threshold while barely moving the camera.
    * Some sensor stacks (e.g. the emulator) only emit on change, so without [nowNs] a phone held still would keep
    * reporting the velocity of its last movement.
    */
-  fun angularVelocityDegPerS(nowNs: Long? = null, staleNs: Long = 100_000_000L): Double {
+  fun angularVelocityDegPerS(nowNs: Long? = null, staleNs: Long = 100_000_000L, windowNs: Long = 150_000_000L): Double {
     if (count < 2) return 0.0
-    val a = idx(count - 2)
     val b = idx(count - 1)
+    var k = count - 2
+    while (k > 0 && times[b] - times[idx(k)] < windowNs) k--
+    val a = idx(k)
     if (nowNs != null && nowNs - times[b] > staleNs) return 0.0
     val dt = (times[b] - times[a]) / 1e9
     return if (dt <= 0) 0.0 else quats[a]!!.angleDegTo(quats[b]!!) / dt

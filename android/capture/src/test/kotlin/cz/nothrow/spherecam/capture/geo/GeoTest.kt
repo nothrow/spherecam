@@ -173,24 +173,31 @@ class TargetsTest {
     val ms = 1_000_000L
     var ac = AutoCapture()
     assertTrue(!ac.update(0, t.rotation, 0.0, t))
-    assertTrue(!ac.update(200 * ms, t.rotation, 0.0, t))
-    assertTrue(ac.update(300 * ms, t.rotation, 0.0, t))
-    assertTrue(!ac.update(400 * ms, t.rotation, 0.0, t))
+    assertTrue(!ac.update(150 * ms, t.rotation, 0.0, t))
+    assertTrue(ac.update(200 * ms, t.rotation, 0.0, t))
+    assertTrue(!ac.update(300 * ms, t.rotation, 0.0, t))
     ac.reset()
-    assertTrue(!ac.update(500 * ms, t.rotation, 0.0, t))
-    assertTrue(ac.update(800 * ms, t.rotation, 0.0, t))
+    assertTrue(!ac.update(400 * ms, t.rotation, 0.0, t))
+    assertTrue(ac.update(600 * ms, t.rotation, 0.0, t))
 
     ac = AutoCapture()
     assertTrue(!ac.update(0, t.rotation, 0.0, t))
-    assertTrue(!ac.update(200 * ms, t.rotation, 10.0, t))
+    assertTrue(!ac.update(100 * ms, t.rotation, 15.0, t))
+    assertTrue(!ac.update(200 * ms, t.rotation, 0.0, t))
     assertTrue(!ac.update(300 * ms, t.rotation, 0.0, t))
-    assertTrue(!ac.update(500 * ms, t.rotation, 0.0, t))
-    assertTrue(ac.update(600 * ms, t.rotation, 0.0, t))
+    assertTrue(ac.update(400 * ms, t.rotation, 0.0, t))
 
     ac = AutoCapture()
     val off = t.rotation * Quat.fromAxisAngleDeg(X, 3.0)
     assertTrue(!ac.update(0, off, 0.0, t))
     assertTrue(!ac.update(1000 * ms, off, 0.0, t))
+
+    ac = AutoCapture()
+    val edge = t.rotation * Quat.fromAxisAngleDeg(X, 2.4)
+    assertTrue(!ac.update(0, edge, 0.0, t))
+    assertTrue(!ac.update(100 * ms, t.rotation, 0.0, t))
+    assertTrue(!ac.update(200 * ms, edge, 0.0, t))
+    assertTrue(ac.update(300 * ms, t.rotation, 0.0, t))
   }
 }
 
@@ -272,6 +279,12 @@ class RotationBufferTest {
     assertEquals(10.0 / 0.02, buf.angularVelocityDegPerS(), 1e-6)
     assertEquals(10.0 / 0.02, buf.angularVelocityDegPerS(nowNs = 1_100_000_000), 1e-6)
     assertEquals(0.0, buf.angularVelocityDegPerS(nowNs = 1_200_000_000), 0.0)
+  }
+
+  @Test fun tremorAveragesOut() {
+    val buf = RotationBuffer()
+    for (i in 0..20) buf.add(i * 20_000_000L, Quat.fromAxisAngleDeg(Z, if (i % 2 == 0) 0.0 else 0.3))
+    assertEquals(0.0, buf.angularVelocityDegPerS(), 1e-6)
   }
 
   @Test fun largeGapIsNull() {
