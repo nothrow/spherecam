@@ -4,9 +4,11 @@
 #include "spherestitch/stitch.hpp"
 #include "synth.hpp"
 
-int main() {
+int main(int argc, char** argv) {
+    // On a device the test data lives elsewhere than the source tree it was built from.
+    std::string testdata = argc > 1 ? argv[1] : TESTDATA;
     for (const char* name : {"nadir-1", "nadir-2"}) {
-        std::string dir = std::string(TESTDATA) + "/emulator/" + name, out = std::string("emulator_") + name;
+        std::string dir = testdata + "/emulator/" + name, out = std::string("emulator_") + name;
         spherestitch::Options o;
         o.width = 2048;
         o.debugDir = out + "_debug";
