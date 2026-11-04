@@ -63,7 +63,7 @@ private fun hasCamera(ctx: Context) =
   ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
 @Composable
-fun CaptureScreen(nadir: Boolean, onExit: () -> Unit) {
+fun CaptureScreen(nadir: Boolean, onExit: () -> Unit, onFinished: (sessionId: String) -> Unit) {
   val ctx = LocalContext.current
   var granted by remember { mutableStateOf(hasCamera(ctx)) }
   val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
@@ -72,7 +72,7 @@ fun CaptureScreen(nadir: Boolean, onExit: () -> Unit) {
   LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { granted = hasCamera(ctx) }
 
   if (granted) {
-    CaptureSession(nadir, onExit)
+    CaptureSession(nadir, onExit, onFinished)
   } else {
     BackHandler(onBack = onExit)
     Column(Modifier.safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -89,7 +89,7 @@ fun CaptureScreen(nadir: Boolean, onExit: () -> Unit) {
 }
 
 @Composable
-private fun CaptureSession(nadir: Boolean, onExit: () -> Unit) {
+private fun CaptureSession(nadir: Boolean, onExit: () -> Unit, onFinished: (String) -> Unit) {
   val ctx = LocalContext.current
   val owner = LocalLifecycleOwner.current
   val camera = remember { CaptureCamera(ctx) }
@@ -128,19 +128,19 @@ private fun CaptureSession(nadir: Boolean, onExit: () -> Unit) {
   Box(Modifier.fillMaxSize().background(Color.Black)) {
     AndroidView({ previewView }, Modifier.fillMaxSize())
     val c = controller
-    if (c != null) CaptureUi(c, onExit) else Text(error ?: stringResource(R.string.starting), Modifier.align(Alignment.Center), color = Color.White)
+    if (c != null) CaptureUi(c, onExit, onFinished) else Text(error ?: stringResource(R.string.starting), Modifier.align(Alignment.Center), color = Color.White)
     if (c != null && error != null) Text(error!!, Modifier.align(Alignment.Center), color = Color.Red)
   }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CaptureUi(controller: CaptureController, onExit: () -> Unit) {
+private fun CaptureUi(controller: CaptureController, onExit: () -> Unit, onFinished: (String) -> Unit) {
   val ctx = LocalContext.current
   val state by controller.state.collectAsState()
   var confirmCancel by remember { mutableStateOf(false) }
   var showImages by remember { mutableStateOf(false) }
-  LaunchedEffect(state.finished) { if (state.finished) onExit() }
+  LaunchedEffect(state.finished) { if (state.finished) onFinished(controller.sessionId) }
   BackHandler { confirmCancel = true }
 
   CaptureOverlay(state)

@@ -6,12 +6,13 @@ plugins {
 android {
   namespace = "cz.nothrow.spherecam"
   compileSdk = 36
+  ndkVersion = "30.0.16248370"
   defaultConfig {
     applicationId = "cz.nothrow.spherecam"
     minSdk = 29
     targetSdk = 36
-    versionCode = 2
-    versionName = "1.1"
+    versionCode = 3
+    versionName = "2.0"
     ndk { abiFilters += "arm64-v8a" }
   }
 
@@ -29,6 +30,8 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+      // Lets Play Console symbolize native (stitcher) crashes.
+      ndk { debugSymbolLevel = "SYMBOL_TABLE" }
       if (signing.storePassword != null) signingConfig = signing
     }
   }
@@ -56,6 +59,7 @@ kotlin {
 
 dependencies {
   implementation(project(":capture"))
+  implementation(project(":stitcher"))
   implementation(platform(libs.androidx.compose.bom))
 
   implementation(libs.androidx.core.ktx)

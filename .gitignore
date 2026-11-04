@@ -17,3 +17,8 @@ __pycache__/
 *.pyc
 .venv/
 emu_sessions/
+
+# Stitcher
+stitcher/.deps/
+stitcher/build/
+stitcher/build-*/

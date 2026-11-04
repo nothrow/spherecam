@@ -47,8 +47,10 @@ class SessionStore(private val root: File) {
     writeManifest(m.copy(camera = f(m.camera)))
   }
 
-  fun markCaptured(sessionId: String) {
-    writeManifest(readManifest(sessionId).copy(status = SessionStatus.CAPTURED))
+  fun markCaptured(sessionId: String) = setStatus(sessionId, SessionStatus.CAPTURED)
+
+  fun setStatus(sessionId: String, status: SessionStatus) {
+    writeManifest(readManifest(sessionId).copy(status = status))
   }
 
   /** Newest first. Folders with a missing or corrupt manifest are skipped but left in place. */
@@ -64,10 +66,10 @@ class SessionStore(private val root: File) {
   fun exportZip(sessionId: String, outFile: File) {
     val d = dir(sessionId)
     ZipOutputStream(outFile.outputStream().buffered()).use { zip ->
-      val files = d.listFiles { f -> f.name == MANIFEST || f.name.matches(IMAGE_RE) }.orEmpty().sortedBy { it.name }
+      val files = d.listFiles { f -> f.name == MANIFEST || f.name == PANO_REPORT || f.name.matches(IMAGE_RE) }.orEmpty().sortedBy { it.name }
       for (f in files) {
         val e = ZipEntry("$sessionId/${f.name}")
-        if (f.name == MANIFEST) {
+        if (f.name == MANIFEST || f.name == PANO_REPORT) {
           e.method = ZipEntry.DEFLATED
         } else {
           val bytes = f.readBytes()
@@ -102,6 +104,8 @@ class SessionStore(private val root: File) {
 
   companion object {
     const val MANIFEST = "manifest.json"
+    const val PANO = "pano.jpg"
+    const val PANO_REPORT = "pano.json"
     private val IMAGE_RE = Regex("img_\\d{3}\\.jpg")
     fun imageName(index: Int) = "img_%03d.jpg".format(index)
   }

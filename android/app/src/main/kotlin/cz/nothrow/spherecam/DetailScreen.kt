@@ -3,6 +3,7 @@ package cz.nothrow.spherecam
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -25,13 +26,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import cz.nothrow.spherecam.capture.session.Manifest
 import cz.nothrow.spherecam.capture.session.SessionStatus
+import cz.nothrow.spherecam.capture.session.SessionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
-fun DetailScreen(sessionId: String, onBack: () -> Unit) {
+fun DetailScreen(sessionId: String, onBack: () -> Unit, onStitch: () -> Unit) {
   val ctx = LocalContext.current
   val scope = rememberCoroutineScope()
   var manifest by remember { mutableStateOf<Manifest?>(null) }
@@ -45,6 +47,8 @@ fun DetailScreen(sessionId: String, onBack: () -> Unit) {
 
   Scaffold { pad ->
     Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      val pano = File(ctx.sessionDir(sessionId), SessionStore.PANO)
+      if (pano.exists()) Thumb(pano, Modifier.fillMaxWidth().aspectRatio(2f), targetPx = 512)
       Text(stringResource(R.string.detail_created, formatDate(m.createdAt)))
       Text(stringResource(R.string.detail_status, stringResource(m.status.label())))
       Text(stringResource(R.string.detail_frames, m.frames.size))
@@ -59,6 +63,11 @@ fun DetailScreen(sessionId: String, onBack: () -> Unit) {
             manifest = m.copy(status = SessionStatus.CAPTURED)
           }
         }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.mark_captured)) }
+      }
+      if (pano.exists()) Button({ ctx.sharePano(pano) }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.share_pano)) }
+      if (m.status != SessionStatus.CAPTURING) {
+        val again = m.status == SessionStatus.STITCHED || m.status == SessionStatus.FAILED
+        Button(onStitch, Modifier.fillMaxWidth()) { Text(stringResource(if (again) R.string.stitch_again else R.string.stitch)) }
       }
       Button({
         scope.launch {

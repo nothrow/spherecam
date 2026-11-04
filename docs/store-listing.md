@@ -1,14 +1,14 @@
 # Play Store listing
 
-Limits: title 30, short description 80, full description 4000 characters.
-The texts describe the current build (capture and export only). Update them once stitching and the viewer ship.
+Limits: title 30, short description 80, full description 4000, release notes 500 characters.
+The texts describe version 2.0 (capture and on-device stitching, no built-in viewer yet).
 
 ## English (en-US)
 
 **Title:** SphereCam – 360° Panorama
 
 **Short description:**
-Guided 360° panorama capture using your phone's gyroscope. Works fully offline.
+Guided 360° panorama capture and stitching on your phone. Works fully offline.
 
 **Full description:**
 SphereCam guides you through shooting a complete 360° panorama with your phone's camera.
@@ -23,23 +23,25 @@ FEATURES
 • Undo the last shot and review the images you already captured
 • Locked exposure, white balance and focus for consistent frames
 • Each capture is stored as a session folder with full-resolution images and a manifest with the camera orientation of every frame
-• Export a session as a ZIP to stitch it on a computer
+• On-device stitching into a full 360° panorama (6144×3072), no internet needed
+• Panoramas are saved to your gallery as 360° photos, ready to view in Google Photos or share
+• Re-stitch any session later, share the panorama, or export the session as a ZIP
 
 PRIVACY
-SphereCam has no internet permission, no accounts, no ads and no analytics. Your photos never leave your device unless you export them yourself. The only permission it asks for is the camera.
+SphereCam has no internet permission, no accounts, no ads and no analytics. Stitching runs entirely on your phone. Your photos never leave your device unless you share or export them yourself. The only permission it asks for is the camera.
 
 REQUIREMENTS
 A phone with a gyroscope and a rear camera. Android 10 or newer.
 
 EARLY ACCESS
-This is an early test version. It currently covers capturing and exporting sessions; on-device stitching and a built-in 360° viewer are coming next. Feedback is very welcome.
+This is an early test version. A built-in 360° viewer is coming next; until then, open panoramas in Google Photos. Feedback is very welcome.
 
 ## Čeština (cs-CZ)
 
 **Název:** SphereCam – 360° Panorama
 
 **Krátký popis:**
-Focení 360° panoramat s vedením podle gyroskopu. Funguje zcela offline.
+Focení a slepení 360° panoramat přímo v telefonu. Funguje zcela offline.
 
 **Dlouhý popis:**
 SphereCam vás provede focením kompletního 360° panoramatu fotoaparátem telefonu.
@@ -54,13 +56,34 @@ FUNKCE
 • Vrácení posledního snímku a náhled už pořízených snímků
 • Zamčená expozice, vyvážení bílé a ostření pro jednotné snímky
 • Každé focení se uloží jako složka se snímky v plném rozlišení a manifestem s orientací kamery u každého snímku
-• Export session do ZIP pro slepení na počítači
+• Slepení do kompletního 360° panoramatu (6144×3072) přímo v telefonu, bez internetu
+• Panoramata se uloží do galerie jako 360° fotky, připravené k prohlížení v Google Fotkách nebo ke sdílení
+• Kteroukoli session můžete později slepit znovu, panorama sdílet nebo session exportovat do ZIP
 
 SOUKROMÍ
-SphereCam nemá oprávnění k internetu, účty, reklamy ani analytiku. Vaše fotky neopustí telefon, pokud je sami neexportujete. Jediné oprávnění, které vyžaduje, je fotoaparát.
+SphereCam nemá oprávnění k internetu, účty, reklamy ani analytiku. Slepování probíhá celé v telefonu. Vaše fotky neopustí telefon, pokud je sami nesdílíte nebo neexportujete. Jediné oprávnění, které vyžaduje, je fotoaparát.
 
 POŽADAVKY
 Telefon s gyroskopem a zadním fotoaparátem. Android 10 nebo novější.
 
 RANÝ PŘÍSTUP
-Jde o ranou testovací verzi. Zatím umí focení a export session; slepování přímo v telefonu a vestavěný 360° prohlížeč přijdou příště. Zpětná vazba je vítaná.
+Jde o ranou testovací verzi. Vestavěný 360° prohlížeč přijde příště, do té doby panoramata otevřete v Google Fotkách. Zpětná vazba je vítaná.
+
+## Release notes 2.0 (versionCode 3)
+
+```
+<en-US>
+New: panoramas are now stitched right on your phone.
+• Stitching starts automatically after the last shot, with progress and an estimate of the remaining time
+• The finished 360° panorama is saved to your gallery (Pictures/SphereCam) and opens as a 360° photo in Google Photos
+• Share the panorama or stitch any session again from its detail
+Everything runs offline; no new permissions.
+</en-US>
+<cs-CZ>
+Novinka: panoramata se teď slepí přímo v telefonu.
+• Slepování začne samo po posledním snímku, s průběhem a odhadem zbývajícího času
+• Hotové 360° panorama se uloží do galerie (Pictures/SphereCam) a v Google Fotkách se otevře jako 360° fotka
+• Panorama můžete sdílet nebo kteroukoli session slepit znovu z jejího detailu
+Vše běží offline, bez nových oprávnění.
+</cs-CZ>
+```

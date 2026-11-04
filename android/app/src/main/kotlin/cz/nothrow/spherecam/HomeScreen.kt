@@ -46,7 +46,8 @@ fun HomeScreen(onNew: (nadir: Boolean) -> Unit, onOpen: (String) -> Unit) {
   var sessions by remember { mutableStateOf<List<Manifest>>(emptyList()) }
   LaunchedEffect(Unit) { sessions = withContext(Dispatchers.IO) { ctx.sessionStore().list() } }
   HomeContent(
-    sessions, nadir, { File(ctx.sessionDir(it.sessionId), SessionStore.imageName(0)) },
+    sessions, nadir,
+    { m -> File(ctx.sessionDir(m.sessionId), SessionStore.PANO).takeIf { it.exists() } ?: File(ctx.sessionDir(m.sessionId), SessionStore.imageName(0)) },
     onNadir = { nadir = it; prefs.edit().putBoolean(PREF_NADIR, it).apply() },
     onNew = { onNew(nadir) },
     onOpen = onOpen,

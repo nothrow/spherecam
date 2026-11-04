@@ -16,11 +16,19 @@ sealed interface Screen {
   data object Home : Screen
   data class Capture(val nadir: Boolean) : Screen
   data class Detail(val sessionId: String) : Screen
+  data class Stitch(val sessionId: String) : Screen
 }
 
 // A capture cannot be resumed (the gyro yaw reference is lost), so after process death Capture is restored as Home.
+// A stitch is not restarted on its own after process death; it is restored as the session's Detail.
 private val ScreenSaver = Saver<Screen, String>(
-  save = { (it as? Screen.Detail)?.let { d -> "detail:${d.sessionId}" } ?: "home" },
+  save = {
+    when (it) {
+      is Screen.Detail -> "detail:${it.sessionId}"
+      is Screen.Stitch -> "detail:${it.sessionId}"
+      else -> "home"
+    }
+  },
   restore = { if (it.startsWith("detail:")) Screen.Detail(it.removePrefix("detail:")) else Screen.Home },
 )
 
@@ -38,8 +46,9 @@ class MainActivity : ComponentActivity() {
             onNew = { screen = Screen.Capture(it) },
             onOpen = { screen = Screen.Detail(it) },
           )
-          is Screen.Capture -> CaptureScreen(s.nadir, onExit = home)
-          is Screen.Detail -> DetailScreen(s.sessionId, onBack = home)
+          is Screen.Capture -> CaptureScreen(s.nadir, onExit = home, onFinished = { screen = Screen.Stitch(it) })
+          is Screen.Detail -> DetailScreen(s.sessionId, onBack = home, onStitch = { screen = Screen.Stitch(s.sessionId) })
+          is Screen.Stitch -> StitchScreen(s.sessionId, onDone = { screen = Screen.Detail(s.sessionId) })
         }
       }
     }

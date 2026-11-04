@@ -56,9 +56,10 @@ Android specifics are resolved in capture before the manifest is written.
 - Viewer: OpenGL ES 3, fullscreen quad with ray-casting shader, gyro + drag + pinch.
   Also opens third-party 360 photos (Photo Picker, `ACTION_VIEW`), honours GPano `CroppedArea*`.
 - No compass for now (maybe later only as `PoseHeadingDegrees` in metadata).
-- OpenCV: same pinned version on desktop and Android. For Play, a custom minimal build
-  (modules core, imgproc, imgcodecs, features2d, flann, calib3d, stitching) with
-  16 KB page size support.
+- OpenCV 5.0.0: same pinned version on desktop and Android (`tools/build_opencv.sh`). For Play,
+  a custom minimal static build (modules core, imgproc, imgcodecs, features, flann, geometry,
+  stitching; OpenCV 5 renamed features2d → features and calib3d's geometry part → geometry)
+  with 16 KB page size support.
 
 ## UI flow (overall)
 1. Home: "New panorama", "Capture ground" toggle (nadir, default off, remembers last choice),
@@ -85,4 +86,5 @@ Full brief: `docs/prompts/phase2-stitcher.md` (read it before starting). Summary
   open and listed in the phase 2 brief.
 
 ## Out of scope for this phase
-Android `:stitcher` JNI module, viewer, MediaStore, GPano XMP, Play release, compass, icon and branding.
+Viewer, compass, icon and branding. Done beyond the original scope: `:stitcher` JNI module, MediaStore
+save with GPano XMP, sharing and the Play release of version 2.0.
