@@ -55,7 +55,7 @@ sensor timestamps) or `UNKNOWN` (not comparable, fallback applies).
 | `app.versionName`, `app.versionCode` | string, int | Capturing app version |
 | `device.manufacturer`, `device.model`, `device.sdkInt` | string, string, int | Build info |
 | `settings.nadir` | bool | Nadir targets were requested |
-| `settings.targetOverlap` | number | Overlap fraction used to lay out targets (0.30 = 30 %); target counts and row pitches follow from it and the camera FOV |
+| `settings.targetOverlap` | number | Overlap fraction used to lay out targets (0.30 = 30 %); target counts and row pitches follow from it and the camera FOV. Rows at and below the horizon use at least 0.45 horizontally (`NEAR_ROW_OVERLAP`) |
 | `conventions.*` | strings | Human-readable restatement of the conventions above |
 | `camera.cameraId` | string | Camera2 id |
 | `camera.imageWidth`, `imageHeight` | int | Saved JPEG size in pixels |

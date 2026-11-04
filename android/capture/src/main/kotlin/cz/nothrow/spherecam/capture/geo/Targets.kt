@@ -36,6 +36,13 @@ fun idealRotation(yawDeg: Double, pitchDeg: Double): Quat {
 private fun target(id: String, yaw: Double, pitch: Double, twistFree: Boolean = false) =
   Target(id, yaw, pitch, idealRotation(yaw, pitch), twistFree)
 
+/**
+ * Users turn their body rather than the phone, so the camera moves between shots. Parallax on a seam grows with
+ * the baseline between neighbours, and it hurts most where the scene is close: walls at eye level and the floor.
+ * Those rows get denser shots; the ceiling is far and the row pitch stays on [layoutTargets]' overlap.
+ */
+const val NEAR_ROW_OVERLAP = 0.45
+
 /** hfov/vfov are of the saved portrait image. Returns targets in capture order. */
 fun layoutTargets(hfovDeg: Double, vfovDeg: Double, overlap: Double = 0.30, nadir: Boolean): List<Target> {
   val gaps = ceil(90 / (vfovDeg * (1 - overlap))).toInt()
@@ -43,7 +50,8 @@ fun layoutTargets(hfovDeg: Double, vfovDeg: Double, overlap: Double = 0.30, nadi
   // Neighbours are farthest apart at the image edge nearest the equator, so size the row for that latitude.
   fun row(prefix: String, pitch: Double): List<Target> {
     val edge = max(0.0, abs(pitch) - vfovDeg / 2)
-    val count = max(3, ceil(360 * cos(Math.toRadians(edge)) / (hfovDeg * (1 - overlap))).toInt())
+    val o = if (pitch <= 0) max(overlap, NEAR_ROW_OVERLAP) else overlap
+    val count = max(3, ceil(360 * cos(Math.toRadians(edge)) / (hfovDeg * (1 - o))).toInt())
     return List(count) { i -> target("${prefix}_c$i", 360.0 * i / count, pitch) }
   }
 
