@@ -173,19 +173,19 @@ class TargetsTest {
     val ms = 1_000_000L
     var ac = AutoCapture()
     assertTrue(!ac.update(0, t.rotation, 0.0, t))
-    assertTrue(!ac.update(200 * ms, t.rotation, 0.0, t))
-    assertTrue(ac.update(300 * ms, t.rotation, 0.0, t))
-    assertTrue(!ac.update(400 * ms, t.rotation, 0.0, t))
+    assertTrue(!ac.update(150 * ms, t.rotation, 0.0, t))
+    assertTrue(ac.update(200 * ms, t.rotation, 0.0, t))
+    assertTrue(!ac.update(300 * ms, t.rotation, 0.0, t))
     ac.reset()
-    assertTrue(!ac.update(500 * ms, t.rotation, 0.0, t))
-    assertTrue(ac.update(800 * ms, t.rotation, 0.0, t))
+    assertTrue(!ac.update(400 * ms, t.rotation, 0.0, t))
+    assertTrue(ac.update(600 * ms, t.rotation, 0.0, t))
 
     ac = AutoCapture()
     assertTrue(!ac.update(0, t.rotation, 0.0, t))
-    assertTrue(!ac.update(200 * ms, t.rotation, 15.0, t))
+    assertTrue(!ac.update(100 * ms, t.rotation, 15.0, t))
+    assertTrue(!ac.update(200 * ms, t.rotation, 0.0, t))
     assertTrue(!ac.update(300 * ms, t.rotation, 0.0, t))
-    assertTrue(!ac.update(500 * ms, t.rotation, 0.0, t))
-    assertTrue(ac.update(600 * ms, t.rotation, 0.0, t))
+    assertTrue(ac.update(400 * ms, t.rotation, 0.0, t))
 
     ac = AutoCapture()
     val off = t.rotation * Quat.fromAxisAngleDeg(X, 3.0)
@@ -197,7 +197,7 @@ class TargetsTest {
     assertTrue(!ac.update(0, edge, 0.0, t))
     assertTrue(!ac.update(100 * ms, t.rotation, 0.0, t))
     assertTrue(!ac.update(200 * ms, edge, 0.0, t))
-    assertTrue(ac.update(400 * ms, t.rotation, 0.0, t))
+    assertTrue(ac.update(300 * ms, t.rotation, 0.0, t))
   }
 }
 

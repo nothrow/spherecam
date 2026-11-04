@@ -76,7 +76,7 @@ class AutoCapture(
   val maxAngleDeg: Double = 2.0,
   val maxTwistDeg: Double = 8.0,
   private val maxAngularVelDegPerS: Double = 8.0,
-  private val steadyNs: Long = 300_000_000L,
+  private val steadyNs: Long = 200_000_000L,
   private val exitFactor: Double = 1.25,
 ) {
   private var steadySinceNs = -1L
