@@ -2,6 +2,8 @@
 # Cross-builds the stitcher tests for arm64-v8a and runs them on a device over adb.
 # Needs tools/build_opencv.sh run for the Android prefix first (see its header).
 # Usage: tools/stitcher_android_tests.sh [adb serial]
+# Use a real arm64 phone. The x86_64 emulator runs arm64 binaries through ndk_translation, which executes FCVTL2
+# wrongly (converts the low half), so OpenCV's float->double convertTo and everything built on it (BA) fails there.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
