@@ -1,6 +1,7 @@
 package cz.nothrow.spherecam.capture
 
 import kotlin.math.abs
+import kotlin.math.min
 import android.content.Context
 import android.os.Build
 import android.util.Log
@@ -47,6 +48,8 @@ import java.time.Instant
 import java.util.UUID
 
 const val DEFAULT_OVERLAP = 0.30
+/** Fraction of the smaller FOV; with 1.25x hysteresis two opposite misses still keep most of [DEFAULT_OVERLAP]. */
+const val AIM_TOLERANCE_FOV = 0.10
 
 /**
  * [cameraRotation] is R_world_from_camera of the live pose; before the first shot the world is provisional
@@ -63,6 +66,7 @@ data class UiState(
   val ready: Boolean = false,
   val aimOk: Boolean = false,
   val rollOk: Boolean = true,
+  val aimToleranceDeg: Double = 0.0,
   val count: Int = 0,
   val total: Int = 0,
   val previewIntrinsics: Intrinsics? = null,
@@ -98,7 +102,8 @@ class CaptureController(
 
   private val saved = camera.savedIntrinsics
   private val targets = saved.fovDeg().let { (h, v) -> layoutTargets(h, v, overlap, nadir) }
-  private val autoCapture = AutoCapture()
+  // Aim precision only protects overlap: the stitcher uses the recorded rotation and refines it from features.
+  private val autoCapture = AutoCapture(maxAngleDeg = AIM_TOLERANCE_FOV * saved.fovDeg().let { (h, v) -> min(h, v) })
   private val storeDispatcher = Dispatchers.IO.limitedParallelism(1)
   private val shotTargets = ArrayList<Target>()
   private var worldFromGw: Quat? = null
@@ -108,7 +113,8 @@ class CaptureController(
   private var shooting: Job? = null
 
   private val _state = MutableStateFlow(
-    UiState(targets = targets, total = targets.size, previewIntrinsics = camera.previewIntrinsics),
+    UiState(targets = targets, total = targets.size, previewIntrinsics = camera.previewIntrinsics,
+      aimToleranceDeg = autoCapture.maxAngleDeg),
   )
   val state: StateFlow<UiState> = _state.asStateFlow()
 

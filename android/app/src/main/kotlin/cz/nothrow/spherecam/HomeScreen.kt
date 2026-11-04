@@ -42,7 +42,7 @@ private const val PREF_NADIR = "nadir"
 fun HomeScreen(onNew: (nadir: Boolean) -> Unit, onOpen: (String) -> Unit) {
   val ctx = LocalContext.current
   val prefs = remember { ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
-  var nadir by remember { mutableStateOf(prefs.getBoolean(PREF_NADIR, true)) }
+  var nadir by remember { mutableStateOf(prefs.getBoolean(PREF_NADIR, false)) }
   var sessions by remember { mutableStateOf<List<Manifest>>(emptyList()) }
   LaunchedEffect(Unit) { sessions = withContext(Dispatchers.IO) { ctx.sessionStore().list() } }
   HomeContent(
