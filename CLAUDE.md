@@ -73,18 +73,15 @@ Android specifics are resolved in capture before the manifest is written.
 
 ---
 
-# CURRENT PHASE: desktop stitcher
+# CURRENT PHASE: viewer
 
-Full brief: `docs/prompts/phase2-stitcher.md` (read it before starting). Summary:
-- Pure C++17 `/stitcher/core` + `/stitcher/cli` + `/stitcher/tests` on OpenCV (pinned version, same as the
-  later Android build), developed and tested on desktop against session folders; no Android/JNI yet.
-- Input contract: `docs/manifest.md`. Output equirect mapping must match `tools/preview_from_manifest.py`.
-- Test data: synthetic sessions (see `tools/test_preview.py`) and `testdata/emulator/nadir-*`.
-- Emulator sessions can be re-captured without a human: `tools/emu_capture.py` (Windows `adb.exe` +
-  emulator gRPC via `tools/emu_pose.py`).
-- Phase 1 brief (capture app): `docs/phases/phase1-capture.md`. Its device-only checks (A16/S23) are still
-  open and listed in the phase 2 brief.
+Full brief: `docs/prompts/phase3-viewer.md` (read it before starting). Summary:
+- New `:viewer` module with a separate `ViewerActivity` (landscape allowed, rest of app portrait): GLES 3 ray-casting equirect viewer (gyro + drag + pinch), honours GPano `CroppedArea*`,
+  same equirect convention as `tools/preview_from_manifest.py`.
+- Entry points: Detail ("View"), Home ("Open 360 photo" via Photo Picker), `ACTION_VIEW` for JPEG.
+- Small gap: Detail "Delete source images".
+- Phase 1 device checks on the A16 are run together with the viewer test (list in the brief).
+- Previous briefs: `docs/phases/phase1-capture.md`, `docs/prompts/phase2-stitcher.md`.
 
 ## Out of scope for this phase
-Viewer, compass, icon and branding. Done beyond the original scope: `:stitcher` JNI module, MediaStore
-save with GPano XMP, sharing and the Play release of version 2.0.
+Parallax-aware stitching and capture hints (phase 4), compass, icon and branding.
