@@ -110,11 +110,13 @@ class TargetsTest {
     val rows = t.groupBy { it.pitchDeg }
     println("rows: " + rows.entries.joinToString { "${it.key}deg=${it.value.size}" })
     assertEquals(listOf(0.0, 45.0, 90.0, -45.0, -90.0), rows.keys.toList())
-    assertEquals(11, rows[0.0]!!.size)
+    assertEquals(14, rows[0.0]!!.size)
+    assertEquals(11, rows[45.0]!!.size)
+    assertEquals(13, rows[-45.0]!!.size)
     assertEquals(1, rows[90.0]!!.size)
     assertEquals(2, rows[-90.0]!!.size)
     val ids = t.map { it.id }
-    assertEquals(listOf(0, 11, 22, 23, 34, 35), listOf("e_c0", "u1_c0", "zenith", "d1_c0", "nadir_0", "nadir_180").map { ids.indexOf(it) })
+    assertEquals(listOf(0, 14, 25, 26, 39, 40), listOf("e_c0", "u1_c0", "zenith", "d1_c0", "nadir_0", "nadir_180").map { ids.indexOf(it) })
     assertEquals(t.last().id, "nadir_180")
     assertTrue(layoutTargets(50.0, 66.0, nadir = false).none { it.id.startsWith("nadir") })
     for ((p, row) in rows) {
