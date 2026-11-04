@@ -60,6 +60,7 @@ kotlin {
 dependencies {
   implementation(project(":capture"))
   implementation(project(":stitcher"))
+  implementation(project(":viewer"))
   implementation(platform(libs.androidx.compose.bom))
 
   implementation(libs.androidx.core.ktx)
