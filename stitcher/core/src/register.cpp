@@ -97,6 +97,8 @@ bool runBa(const std::vector<int>& ids, const std::vector<dt::ImageFeatures>& fe
         ba = cv::makePtr<dt::BundleAdjusterRay>();
     }
     ba->setConfThresh(1.0);
+    // OpenCV's default (1000 iterations, DBL_EPSILON) keeps iterating long after the rotations stop moving.
+    ba->setTermCriteria(cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 100, 1e-6));
     if (!(*ba)(f, m, cams)) return false;
 
     std::vector<cv::Matx33d> raw(k), sensor(k);
@@ -191,6 +193,15 @@ void registerCameras(const Session& s, const Options& o, Reporter& rep, Result& 
                     relErr[p] = 180;
                 }
                 if (relErr[p] > o.maxRelativeRotationDeg) m.confidence = 0;
+                // BA cost grows with every correspondence; ~150 spread over the overlap constrain a rotation plenty.
+                const int maxInliers = 150;
+                if (m.num_inliers > maxInliers) {
+                    int seen = 0, kept = 0;
+                    for (auto& in : m.inliers_mask)
+                        if (in && (long)seen++ * maxInliers / m.num_inliers >= kept) ++kept;
+                        else in = 0;
+                    m.num_inliers = kept;
+                }
                 dt::MatchesInfo d = m;
                 d.src_img_idx = j;
                 d.dst_img_idx = i;
