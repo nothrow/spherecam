@@ -101,6 +101,19 @@ class SessionStoreTest {
     assertEquals(1, store.readManifest("a").frames.size)
   }
 
+  @Test fun deleteSourcesKeepsPanoAndManifest() {
+    val store = SessionStore(tmp.root)
+    store.create(manifest("s"))
+    store.addFrame("s", byteArrayOf(1), frame(0))
+    store.addFrame("s", byteArrayOf(2), frame(1))
+    File(tmp.root, "s/${SessionStore.PANO}").writeBytes(byteArrayOf(3))
+    assertTrue(store.hasSources("s"))
+    store.deleteSources("s")
+    assertFalse(store.hasSources("s"))
+    assertEquals(setOf(SessionStore.MANIFEST, SessionStore.PANO), File(tmp.root, "s").list()!!.toSet())
+    assertEquals(2, store.readManifest("s").frames.size)
+  }
+
   @Test fun zipEntries() {
     val store = SessionStore(tmp.newFolder("sessions"))
     store.create(manifest("a"))

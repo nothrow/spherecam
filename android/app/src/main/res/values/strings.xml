@@ -41,6 +41,11 @@
     <string name="stitch_remaining">%1$s · about %2$s left</string>
     <string name="save_photos_failed">Saved in the app, but saving to Photos failed: %1$s</string>
     <string name="share_pano">Share panorama</string>
+    <string name="view_pano">View panorama</string>
+    <string name="open_360">Open 360° photo</string>
+    <string name="delete_sources">Delete source images</string>
+    <string name="delete_sources_title">Delete source images?</string>
+    <string name="delete_sources_text">The panorama is kept, but the session can no longer be stitched again.</string>
     <string name="share_chooser">Share panorama</string>
     <string name="stitch_failed">Stitching failed: %1$s</string>
     <string name="phase_load">Loading</string>

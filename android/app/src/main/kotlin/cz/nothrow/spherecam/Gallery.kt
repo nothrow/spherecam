@@ -7,6 +7,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import cz.nothrow.spherecam.stitcher.Phase
+import cz.nothrow.spherecam.viewer.ViewerActivity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -33,6 +34,9 @@ fun Context.saveToPhotos(pano: File) {
     throw e
   }
 }
+
+fun Context.viewPano(pano: File) =
+  startActivity(ViewerActivity.intent(this, FileProvider.getUriForFile(this, "$packageName.files", pano)))
 
 fun Context.sharePano(pano: File) {
   val uri = FileProvider.getUriForFile(this, "$packageName.files", pano)
