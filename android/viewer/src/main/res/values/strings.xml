@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="viewer_label">360° viewer</string>
+    <string name="viewer_close">Close</string>
+    <string name="viewer_gyro_on">Gyro on</string>
+    <string name="viewer_gyro_off">Gyro off</string>
+    <string name="viewer_not_360">This is not a 360° photo.</string>
+    <string name="viewer_open_failed">The image cannot be opened.</string>
+</resources>
