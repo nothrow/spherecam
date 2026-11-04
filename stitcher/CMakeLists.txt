@@ -17,6 +17,11 @@ target_include_directories(spherestitch PUBLIC core/include)
 target_link_libraries(spherestitch PUBLIC ${OpenCV_LIBS})
 target_compile_options(spherestitch PRIVATE -Wall -Wextra)
 
+option(SPHERESTITCH_TOOLS "Build the CLI and tests" ON)
+if(NOT SPHERESTITCH_TOOLS)
+  return()
+endif()
+
 add_executable(spherestitch_cli cli/main.cpp)
 set_target_properties(spherestitch_cli PROPERTIES OUTPUT_NAME spherestitch)
 target_link_libraries(spherestitch_cli PRIVATE spherestitch)

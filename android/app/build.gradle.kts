@@ -6,6 +6,7 @@ plugins {
 android {
   namespace = "cz.nothrow.spherecam"
   compileSdk = 36
+  ndkVersion = "30.0.16248370"
   defaultConfig {
     applicationId = "cz.nothrow.spherecam"
     minSdk = 29
@@ -56,6 +57,7 @@ kotlin {
 
 dependencies {
   implementation(project(":capture"))
+  implementation(project(":stitcher"))
   implementation(platform(libs.androidx.compose.bom))
 
   implementation(libs.androidx.core.ktx)

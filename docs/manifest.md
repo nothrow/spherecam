@@ -9,8 +9,10 @@
 <sessionId>/
   manifest.json
   img_000.jpg, img_001.jpg, ...   (3-digit frame index)
+  pano.jpg                        (stitched equirect, after a successful stitch)
+  pano.json                       (stitcher report of the last stitch, also on failure)
 ```
-ZIP export contains the same files under a top-level `<sessionId>/` directory.
+ZIP export contains the manifest, the images and `pano.json` under a top-level `<sessionId>/` directory.
 
 ## Conventions
 All rotations are active, Hamilton quaternions, right-handed.

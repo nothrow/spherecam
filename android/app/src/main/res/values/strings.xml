@@ -34,6 +34,20 @@
     <string name="delete">Delete</string>
     <string name="delete_title">Delete session?</string>
     <string name="delete_text">All images of this session will be deleted.</string>
+    <string name="stitch">Stitch panorama</string>
+    <string name="stitch_again">Stitch again</string>
+    <string name="stitching">Stitching panorama. Keep the app open.</string>
+    <string name="stitch_phase">%1$s (%2$d/%3$d)</string>
+    <string name="stitch_failed">Stitching failed: %1$s</string>
+    <string name="phase_load">Loading</string>
+    <string name="phase_features">Finding features</string>
+    <string name="phase_matching">Matching images</string>
+    <string name="phase_ba">Aligning</string>
+    <string name="phase_warp">Projecting</string>
+    <string name="phase_exposure">Balancing exposure</string>
+    <string name="phase_seams">Finding seams</string>
+    <string name="phase_blend">Blending</string>
+    <string name="phase_encode">Saving</string>
     <string name="yes">yes</string>
     <string name="no">no</string>
 </resources>

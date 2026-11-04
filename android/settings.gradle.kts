@@ -32,4 +32,4 @@ plugins {
 
 rootProject.name = "spherecam"
 
-include(":app", ":capture")
+include(":app", ":capture", ":stitcher")
