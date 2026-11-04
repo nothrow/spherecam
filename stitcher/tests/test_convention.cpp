@@ -18,6 +18,17 @@ int main() {
 
     cv::Mat out = cv::imread(s.dir + "/out.jpg"), truth = synth::renderEquirect(s.texture, W);
     CHECK(out.cols == W && out.rows == H, "size %dx%d", out.cols, out.rows);
+    {
+        std::vector<int> types;
+        std::vector<cv::Mat> meta;
+        cv::imreadWithMetadata(s.dir + "/out.jpg", types, meta, cv::IMREAD_REDUCED_GRAYSCALE_8);
+        std::string xmp;
+        for (size_t i = 0; i < types.size(); ++i)
+            if (types[i] == cv::IMAGE_METADATA_XMP) xmp.assign(meta[i].ptr<char>(), meta[i].total());
+        CHECK(xmp.find("equirectangular") != std::string::npos &&
+                  xmp.find("FullPanoWidthPixels=\"" + std::to_string(W) + "\"") != std::string::npos,
+              "GPano XMP missing: '%s'", xmp.c_str());
+    }
     double e = synth::mae(out, truth);
     double top = synth::mae(out, truth, 256, cv::Range(0, H / 10));
     double bottom = synth::mae(out, truth, 256, cv::Range(H - H / 10, H));

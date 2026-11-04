@@ -4,6 +4,21 @@
 
 namespace spherestitch {
 
+// The output is always the full sphere, so the cropped area is the whole pano.
+static std::string gpanoXmp(int W, int H) {
+    std::string w = std::to_string(W), h = std::to_string(H);
+    // OpenCV writes the chunk as APP1 verbatim, so it must carry the XMP namespace header itself.
+    return std::string("http://ns.adobe.com/xap/1.0/", 29) +
+           "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+           "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+           "<rdf:Description rdf:about=\"\" xmlns:GPano=\"http://ns.google.com/photos/1.0/panorama/\""
+           " GPano:ProjectionType=\"equirectangular\" GPano:UsePanoramaViewer=\"True\""
+           " GPano:FullPanoWidthPixels=\"" + w + "\" GPano:FullPanoHeightPixels=\"" + h + "\""
+           " GPano:CroppedAreaImageWidthPixels=\"" + w + "\" GPano:CroppedAreaImageHeightPixels=\"" + h + "\""
+           " GPano:CroppedAreaLeftPixels=\"0\" GPano:CroppedAreaTopPixels=\"0\"/>"
+           "</rdf:RDF></x:xmpmeta>";
+}
+
 Result stitch(const std::string& sessionDir, const std::string& outPath, const Options& o,
               const ProgressFn& progress) {
     Result r;
@@ -17,8 +32,11 @@ Result stitch(const std::string& sessionDir, const std::string& outPath, const O
         registerCameras(s, o, rep, r);
         cv::Mat out;
         compose(s, o, rep, r, out);
-        // imwrite adds no EXIF, so the output carries no orientation tag and no metadata.
-        if (!cv::imwrite(outPath, out, {cv::IMWRITE_JPEG_QUALITY, o.jpegQuality}))
+        // No EXIF, so the output carries no orientation tag.
+        std::string xmp = gpanoXmp(out.cols, out.rows);
+        std::vector<cv::Mat> meta{cv::Mat(1, (int)xmp.size(), CV_8U, xmp.data())};
+        if (!cv::imwriteWithMetadata(outPath, out, {cv::IMAGE_METADATA_XMP}, meta,
+                                     {cv::IMWRITE_JPEG_QUALITY, o.jpegQuality}))
             throw std::runtime_error("cannot write " + outPath);
         rep.end();
         r.ok = true;
