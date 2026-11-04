@@ -72,8 +72,8 @@ fun aimError(current: Quat, target: Target): AimError {
  * Fires once when the aim has stayed within thresholds for [steadyNs]; call [reset] after a shot or target change.
  */
 class AutoCapture(
-  private val maxAngleDeg: Double = 2.0,
-  private val maxTwistDeg: Double = 5.0,
+  val maxAngleDeg: Double = 2.0,
+  val maxTwistDeg: Double = 5.0,
   private val maxAngularVelDegPerS: Double = 3.0,
   private val steadyNs: Long = 300_000_000L,
 ) {
@@ -81,8 +81,7 @@ class AutoCapture(
   private var fired = false
 
   fun update(tNs: Long, current: Quat, angularVelDegPerS: Double, target: Target): Boolean {
-    val e = aimError(current, target)
-    if (e.angleDeg > maxAngleDeg || abs(e.twistDeg) > maxTwistDeg || angularVelDegPerS > maxAngularVelDegPerS) {
+    if (!withinLimits(aimError(current, target), angularVelDegPerS)) {
       steadySinceNs = -1
       return false
     }
@@ -92,6 +91,9 @@ class AutoCapture(
     fired = true
     return true
   }
+
+  fun withinLimits(e: AimError, angularVelDegPerS: Double) =
+    e.angleDeg <= maxAngleDeg && abs(e.twistDeg) <= maxTwistDeg && angularVelDegPerS <= maxAngularVelDegPerS
 
   fun reset() {
     steadySinceNs = -1

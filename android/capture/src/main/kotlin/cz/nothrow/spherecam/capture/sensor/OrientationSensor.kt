@@ -76,7 +76,8 @@ class OrientationSensor(context: Context) {
     return synchronized(lock) { buffer.rotationAt(realtimeNs + off) }
   }
 
-  fun angularVelocityDegPerS(): Double = synchronized(lock) { buffer.angularVelocityDegPerS() }
+  fun angularVelocityDegPerS(): Double =
+    synchronized(lock) { buffer.angularVelocityDegPerS(SystemClock.elapsedRealtimeNanos() + (clockOffsetNs ?: 0)) }
 
   private companion object {
     const val SAMPLING_PERIOD_US = 20_000

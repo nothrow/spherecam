@@ -1,5 +1,6 @@
 package cz.nothrow.spherecam.capture
 
+import kotlin.math.abs
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
@@ -56,6 +57,11 @@ data class UiState(
   val current: Target? = null,
   val cameraRotation: Quat? = null,
   val aim: AimError? = null,
+  val angularVelDegPerS: Double = 0.0,
+  /** All auto-capture conditions except the steady time are met. */
+  val ready: Boolean = false,
+  val aimOk: Boolean = false,
+  val rollOk: Boolean = true,
   val count: Int = 0,
   val total: Int = 0,
   val previewIntrinsics: Intrinsics? = null,
@@ -127,9 +133,14 @@ class CaptureController(
     val cam = world * q
     val captured = shotTargets.mapTo(HashSet()) { it.id }
     val target = if (shotTargets.isEmpty()) targets.first() else nearestUncaptured(cam, targets, captured)
-    _state.update { it.copy(cameraRotation = cam, current = target, aim = target?.let { t -> aimError(cam, t) }) }
+    val aim = target?.let { aimError(cam, it) }
+    val vel = sensor.angularVelocityDegPerS()
+    val ready = aim != null && autoCapture.withinLimits(aim, vel)
+    _state.update { it.copy(cameraRotation = cam, current = target, aim = aim, angularVelDegPerS = vel, ready = ready,
+      aimOk = aim != null && aim.angleDeg <= autoCapture.maxAngleDeg,
+      rollOk = aim == null || abs(aim.twistDeg) <= autoCapture.maxTwistDeg) }
     if (target != null && !_state.value.busy && !_state.value.finished &&
-      autoCapture.update(SystemClock.elapsedRealtimeNanos(), cam, sensor.angularVelocityDegPerS(), target)
+      autoCapture.update(SystemClock.elapsedRealtimeNanos(), cam, vel, target)
     ) {
       shooting = scope!!.launch { shoot(target) }
     }

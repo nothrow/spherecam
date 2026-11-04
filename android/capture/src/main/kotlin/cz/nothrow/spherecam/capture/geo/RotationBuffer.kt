@@ -51,10 +51,15 @@ class RotationBuffer(private val capacity: Int = 256) {
     return null
   }
 
-  fun angularVelocityDegPerS(): Double {
+  /**
+   * Some sensor stacks (e.g. the emulator) only emit on change, so without [nowNs] a phone held still would keep
+   * reporting the velocity of its last movement.
+   */
+  fun angularVelocityDegPerS(nowNs: Long? = null, staleNs: Long = 100_000_000L): Double {
     if (count < 2) return 0.0
     val a = idx(count - 2)
     val b = idx(count - 1)
+    if (nowNs != null && nowNs - times[b] > staleNs) return 0.0
     val dt = (times[b] - times[a]) / 1e9
     return if (dt <= 0) 0.0 else quats[a]!!.angleDegTo(quats[b]!!) / dt
   }

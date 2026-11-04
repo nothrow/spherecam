@@ -270,6 +270,8 @@ class RotationBufferTest {
     assertNull(buf.rotationAt(1_200_000_000))
     assertNull(buf.rotationAt(800_000_000))
     assertEquals(10.0 / 0.02, buf.angularVelocityDegPerS(), 1e-6)
+    assertEquals(10.0 / 0.02, buf.angularVelocityDegPerS(nowNs = 1_100_000_000), 1e-6)
+    assertEquals(0.0, buf.angularVelocityDegPerS(nowNs = 1_200_000_000), 0.0)
   }
 
   @Test fun largeGapIsNull() {

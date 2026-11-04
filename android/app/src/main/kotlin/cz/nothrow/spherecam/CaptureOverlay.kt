@@ -21,7 +21,6 @@ import kotlin.math.min
 import kotlin.math.tan
 
 /** Same as the AutoCapture default angle threshold. */
-private const val AIM_OK_DEG = 2.0
 private const val TARGET_RADIUS_DEG = 3.0
 private val FORWARD = Vec3(0.0, 0.0, 1.0)
 private val GREEN = Color(0xFF4CAF50)
@@ -85,15 +84,17 @@ fun CaptureOverlay(state: UiState, modifier: Modifier = Modifier) {
     }
 
     val ringR = 28.dp.toPx()
-    val ok = (state.aim?.angleDeg ?: 180.0) <= AIM_OK_DEG
-    drawCircle(if (ok) GREEN else Color.White, ringR, center, style = Stroke(3.dp.toPx()))
+    if (state.ready) drawCircle(GREEN.copy(alpha = 0.35f), ringR, center)
+    drawCircle(if (state.aimOk) GREEN else Color.White, ringR, center, style = Stroke(3.dp.toPx()))
     val cur = state.current
     val aim = state.aim
     if (cur != null && !cur.twistFree && aim != null) {
       // Positive twist rotates the camera clockwise about its axis, so the scene (and the tick) turns counter-clockwise.
-      rotate(-aim.twistDeg.toFloat(), center) {
-        drawLine(AMBER, Offset(center.x, center.y - ringR - 10.dp.toPx()), Offset(center.x, center.y - ringR + 10.dp.toPx()), 3.dp.toPx())
+      val tick = { color: Color ->
+        drawLine(color, Offset(center.x, center.y - ringR - 10.dp.toPx()), Offset(center.x, center.y - ringR + 10.dp.toPx()), 3.dp.toPx())
       }
+      tick(Color.White.copy(alpha = 0.6f))
+      rotate(-aim.twistDeg.toFloat(), center) { tick(if (state.rollOk) GREEN else Color.Red) }
     }
   }
 }

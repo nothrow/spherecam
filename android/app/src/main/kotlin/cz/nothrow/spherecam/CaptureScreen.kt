@@ -1,5 +1,7 @@
 package cz.nothrow.spherecam
 
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.shape.RoundedCornerShape
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -143,18 +145,23 @@ private fun CaptureUi(controller: CaptureController, onExit: () -> Unit) {
 
   CaptureOverlay(state)
   Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-    Text(stringResource(R.string.counter, state.count, state.total), color = Color.White)
-    Text(stringResource(R.string.hint_rotate), color = Color.White)
+    val label = Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
+    Text(stringResource(R.string.counter, state.count, state.total), label, color = Color.White)
+    Text(stringResource(R.string.hint_rotate), label, color = Color.White)
+    // ponytail: always-on tuning readout for this phase; hide behind a debug flag before release.
+    state.aim?.let {
+      Text("%.1f°  roll %.1f°  %.1f°/s".format(it.angleDeg, it.twistDeg, state.angularVelDegPerS), label, color = Color.White)
+    }
     state.lastError?.let { Text(it, color = Color.Red) }
     Box(Modifier.weight(1f))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      OutlinedButton({ controller.undoLast() }, Modifier.weight(1f), enabled = state.count > 0 && !state.busy) {
+      FilledTonalButton({ controller.undoLast() }, Modifier.weight(1f), enabled = state.count > 0 && !state.busy) {
         Text(stringResource(R.string.undo_last))
       }
-      OutlinedButton({ showImages = true }, Modifier.weight(1f), enabled = state.count > 0) {
+      FilledTonalButton({ showImages = true }, Modifier.weight(1f), enabled = state.count > 0) {
         Text(stringResource(R.string.captured_images))
       }
-      OutlinedButton({ confirmCancel = true }, Modifier.weight(1f)) { Text(stringResource(R.string.cancel)) }
+      FilledTonalButton({ confirmCancel = true }, Modifier.weight(1f)) { Text(stringResource(R.string.cancel)) }
     }
   }
 
