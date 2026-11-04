@@ -1,6 +1,11 @@
 package cz.nothrow.spherecam
 
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.material3.OutlinedButton
+import cz.nothrow.spherecam.viewer.ViewerActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -45,12 +50,16 @@ fun HomeScreen(onNew: (nadir: Boolean) -> Unit, onOpen: (String) -> Unit) {
   var nadir by remember { mutableStateOf(prefs.getBoolean(PREF_NADIR, false)) }
   var sessions by remember { mutableStateOf<List<Manifest>>(emptyList()) }
   LaunchedEffect(Unit) { sessions = withContext(Dispatchers.IO) { ctx.sessionStore().list() } }
+  val pick = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
+    if (uri != null) ctx.startActivity(ViewerActivity.intent(ctx, uri))
+  }
   HomeContent(
     sessions, nadir,
     { m -> File(ctx.sessionDir(m.sessionId), SessionStore.PANO).takeIf { it.exists() } ?: File(ctx.sessionDir(m.sessionId), SessionStore.imageName(0)) },
     onNadir = { nadir = it; prefs.edit().putBoolean(PREF_NADIR, it).apply() },
     onNew = { onNew(nadir) },
     onOpen = onOpen,
+    onOpen360 = { pick.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
   )
 }
 
@@ -62,10 +71,12 @@ private fun HomeContent(
   onNadir: (Boolean) -> Unit,
   onNew: () -> Unit,
   onOpen: (String) -> Unit,
+  onOpen360: () -> Unit,
 ) {
   Scaffold { pad ->
     Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
       Button(onNew, Modifier.fillMaxWidth()) { Text(stringResource(R.string.new_panorama)) }
+      OutlinedButton(onOpen360, Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_360)) }
       Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(stringResource(R.string.capture_ground), Modifier.weight(1f))
         Switch(nadir, onNadir)
@@ -101,7 +112,7 @@ private fun HomePreview() {
   SpherecamTheme {
     HomeContent(
       listOf(base, base.copy(sessionId = "b", status = SessionStatus.CAPTURING, frames = base.frames.take(1))),
-      true, { File("none") }, {}, {}, {},
+      true, { File("none") }, {}, {}, {}, {},
     )
   }
 }

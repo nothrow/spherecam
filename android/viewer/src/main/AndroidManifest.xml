@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
-        <!-- configChanges: rotating must not re-decode the panorama. -->
+        <!-- configChanges: rotating must not re-decode the panorama.
+             Empty taskAffinity: opened from another app (NEW_TASK) it must not land on top of the app's own task. -->
         <activity
             android:name=".ViewerActivity"
             android:exported="true"
+            android:taskAffinity=""
             android:label="@string/viewer_label"
             android:screenOrientation="fullUser"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"

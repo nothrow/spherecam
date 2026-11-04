@@ -63,6 +63,16 @@ class SessionStore(private val root: File) {
     dir(sessionId).deleteRecursively()
   }
 
+  /** Keeps manifest and panorama; the manifest then references missing images, so the session cannot be re-stitched. */
+  fun deleteSources(sessionId: String) {
+    dir(sessionId).listFiles { f -> f.name.matches(IMAGE_RE) }.orEmpty().forEach { it.delete() }
+  }
+
+  fun hasSources(sessionId: String): Boolean {
+    val frames = readManifest(sessionId).frames
+    return frames.isNotEmpty() && frames.all { File(dir(sessionId), it.file).exists() }
+  }
+
   fun exportZip(sessionId: String, outFile: File) {
     val d = dir(sessionId)
     ZipOutputStream(outFile.outputStream().buffered()).use { zip ->
