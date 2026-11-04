@@ -20,8 +20,6 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.tan
 
-/** Same as the AutoCapture default angle threshold. */
-private const val TARGET_RADIUS_DEG = 3.0
 private val FORWARD = Vec3(0.0, 0.0, 1.0)
 private val GREEN = Color(0xFF4CAF50)
 private val AMBER = Color(0xFFFFC107)
@@ -56,7 +54,7 @@ fun CaptureOverlay(state: UiState, modifier: Modifier = Modifier) {
     val intr = state.previewIntrinsics?.fillCenter(w.toInt(), h.toInt())
 
     if (rot != null && intr != null) {
-      val radius = (intr.fx * tan(Math.toRadians(TARGET_RADIUS_DEG))).toFloat().coerceAtLeast(6.dp.toPx())
+      val radius = (intr.fx * tan(Math.toRadians(state.aimToleranceDeg))).toFloat().coerceAtLeast(6.dp.toPx())
       for (t in state.targets) {
         val p = project(intr, rot, t.rotation.rotate(FORWARD)) ?: continue
         val o = Offset(p.first.toFloat(), p.second.toFloat())

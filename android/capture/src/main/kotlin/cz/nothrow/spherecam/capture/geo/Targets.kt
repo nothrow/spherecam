@@ -70,18 +70,21 @@ fun aimError(current: Quat, target: Target): AimError {
 
 /**
  * Fires once when the aim has stayed within thresholds for [steadyNs]; call [reset] after a shot or target change.
+ * Once the countdown runs, limits widen by [exitFactor] so tremor at the edge does not restart it.
  */
 class AutoCapture(
   val maxAngleDeg: Double = 2.0,
-  val maxTwistDeg: Double = 5.0,
-  private val maxAngularVelDegPerS: Double = 3.0,
+  val maxTwistDeg: Double = 8.0,
+  private val maxAngularVelDegPerS: Double = 8.0,
   private val steadyNs: Long = 300_000_000L,
+  private val exitFactor: Double = 1.25,
 ) {
   private var steadySinceNs = -1L
   private var fired = false
 
   fun update(tNs: Long, current: Quat, angularVelDegPerS: Double, target: Target): Boolean {
-    if (!withinLimits(aimError(current, target), angularVelDegPerS)) {
+    val k = if (steadySinceNs >= 0) exitFactor else 1.0
+    if (!withinLimits(aimError(current, target), angularVelDegPerS, k)) {
       steadySinceNs = -1
       return false
     }
@@ -92,8 +95,8 @@ class AutoCapture(
     return true
   }
 
-  fun withinLimits(e: AimError, angularVelDegPerS: Double) =
-    e.angleDeg <= maxAngleDeg && abs(e.twistDeg) <= maxTwistDeg && angularVelDegPerS <= maxAngularVelDegPerS
+  fun withinLimits(e: AimError, angularVelDegPerS: Double, k: Double = 1.0) =
+    e.angleDeg <= k * maxAngleDeg && abs(e.twistDeg) <= k * maxTwistDeg && angularVelDegPerS <= k * maxAngularVelDegPerS
 
   fun reset() {
     steadySinceNs = -1
