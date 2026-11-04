@@ -38,6 +38,10 @@
     <string name="stitch_again">Stitch again</string>
     <string name="stitching">Stitching panorama. Keep the app open.</string>
     <string name="stitch_phase">%1$s (%2$d/%3$d)</string>
+    <string name="stitch_remaining">%1$s · about %2$s left</string>
+    <string name="save_photos_failed">Saved in the app, but saving to Photos failed: %1$s</string>
+    <string name="share_pano">Share panorama</string>
+    <string name="share_chooser">Share panorama</string>
     <string name="stitch_failed">Stitching failed: %1$s</string>
     <string name="phase_load">Loading</string>
     <string name="phase_features">Finding features</string>

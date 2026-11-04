@@ -64,6 +64,7 @@ fun DetailScreen(sessionId: String, onBack: () -> Unit, onStitch: () -> Unit) {
           }
         }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.mark_captured)) }
       }
+      if (pano.exists()) Button({ ctx.sharePano(pano) }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.share_pano)) }
       if (m.status != SessionStatus.CAPTURING) {
         val again = m.status == SessionStatus.STITCHED || m.status == SessionStatus.FAILED
         Button(onStitch, Modifier.fillMaxWidth()) { Text(stringResource(if (again) R.string.stitch_again else R.string.stitch)) }

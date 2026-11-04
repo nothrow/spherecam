@@ -15,6 +15,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -30,6 +31,7 @@ import cz.nothrow.spherecam.stitcher.Stitcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,23 +46,35 @@ private val stitchLock = Mutex()
 fun StitchScreen(sessionId: String, onDone: () -> Unit) {
   val ctx = LocalContext.current
   val view = LocalView.current
+  val weights = remember { ctx.phaseWeights() }
   var phase by remember { mutableStateOf(Phase.LOAD) }
   var fraction by remember { mutableDoubleStateOf(0.0) }
-  var error by remember { mutableStateOf<String?>(null) }
+  var startNs by remember { mutableLongStateOf(0L) }
+  var nowNs by remember { mutableLongStateOf(0L) }
+  var message by remember { mutableStateOf<String?>(null) }
 
   DisposableEffect(view) {
     view.keepScreenOn = true
     onDispose { view.keepScreenOn = false }
   }
+  // Bundle adjustment reports no progress, so the estimate is also refreshed by a clock.
+  LaunchedEffect(Unit) {
+    while (true) {
+      nowNs = System.nanoTime()
+      delay(1000)
+    }
+  }
   // Leaving the screen disposes the effect, which cancels the coroutine and through it the native stitch.
   BackHandler(onBack = onDone)
   LaunchedEffect(sessionId) {
-    val err = stitchLock.withLock { withContext(Dispatchers.Default) {
+    val msg = stitchLock.withLock { withContext(Dispatchers.Default) {
+      startNs = System.nanoTime()
       val ctxJob = currentCoroutineContext()
       val dir = ctx.sessionDir(sessionId)
+      val report = File(dir, SessionStore.PANO_REPORT)
       // imwrite picks the encoder from the extension; a temp name keeps the previous pano until this one succeeds.
       val tmp = File(dir, "pano.tmp.jpg")
-      val e = Stitcher.stitch(dir, tmp, File(dir, SessionStore.PANO_REPORT)) { p, f ->
+      val e = Stitcher.stitch(dir, tmp, report) { p, f ->
         phase = p
         fraction = f
         ctxJob.isActive
@@ -68,31 +82,42 @@ fun StitchScreen(sessionId: String, onDone: () -> Unit) {
       withContext(NonCancellable + Dispatchers.IO) {
         when (e) {
           null -> {
-            check(tmp.renameTo(File(dir, SessionStore.PANO))) { "cannot rename $tmp" }
-            ctx.sessionStore().setStatus(sessionId, SessionStatus.STITCHED)
+            val pano = File(dir, SessionStore.PANO)
+            check(tmp.renameTo(pano)) { "cannot rename $tmp" }
+            val store = ctx.sessionStore()
+            store.setStatus(sessionId, SessionStatus.STITCHED)
+            ctx.rememberPhaseWeights(report, store.readManifest(sessionId).frames.size)
+            runCatching { ctx.saveToPhotos(pano) }.exceptionOrNull()
+              ?.let { ctx.getString(R.string.save_photos_failed, it.message ?: it.toString()) }
           }
-          Stitcher.CANCELLED -> tmp.delete()
+          Stitcher.CANCELLED -> {
+            tmp.delete()
+            null
+          }
           else -> {
             tmp.delete()
             ctx.sessionStore().setStatus(sessionId, SessionStatus.FAILED)
+            ctx.getString(R.string.stitch_failed, e)
           }
         }
       }
-      e
     } }
-    if (err == null) onDone() else error = err
+    if (msg == null) onDone() else message = msg
   }
 
   Scaffold { pad ->
     Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      val e = error
-      if (e == null) {
+      val m = message
+      if (m == null) {
+        val p = overallFraction(weights, phase.ordinal, fraction)
+        val label = stringResource(R.string.stitch_phase, stringResource(phase.label()), phase.ordinal + 1, Phase.entries.size)
+        val remaining = if (startNs == 0L) null else remainingSeconds(maxOf(0L, nowNs - startNs) / 1e9, p)
         Text(stringResource(R.string.stitching))
-        Text(stringResource(R.string.stitch_phase, stringResource(phase.label()), phase.ordinal + 1, Phase.entries.size))
-        LinearProgressIndicator({ fraction.toFloat() }, Modifier.fillMaxWidth())
+        LinearProgressIndicator({ p.toFloat() }, Modifier.fillMaxWidth())
+        Text(remaining?.let { stringResource(R.string.stitch_remaining, label, formatRemaining(it)) } ?: label)
         OutlinedButton(onDone, Modifier.fillMaxWidth()) { Text(stringResource(R.string.cancel)) }
       } else {
-        Text(stringResource(R.string.stitch_failed, e))
+        Text(m)
         Button(onDone, Modifier.fillMaxWidth()) { Text(stringResource(R.string.back)) }
       }
     }
