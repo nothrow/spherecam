@@ -3,6 +3,7 @@ package cz.nothrow.spherecam.capture
 import kotlin.math.abs
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -127,6 +128,8 @@ class CaptureController(
     }
   }
 
+  private var ticks = 0
+
   private fun tick() {
     val q = sensor.current.value ?: return
     val world = worldFromGw ?: runCatching { Frames.worldFromGw(q) }.getOrDefault(provisionalWorld).also { provisionalWorld = it }
@@ -134,6 +137,11 @@ class CaptureController(
     val captured = shotTargets.mapTo(HashSet()) { it.id }
     val target = if (shotTargets.isEmpty()) targets.first() else nearestUncaptured(cam, targets, captured)
     val aim = target?.let { aimError(cam, it) }
+    // Emulator pose automation reads this to close the loop (target rotation in the live camera frame).
+    if (target != null && ++ticks % 6 == 0) {
+      val r = cam.conjugate() * target.rotation
+      Log.v("SphereAim", "${target.id} ${r.w} ${r.x} ${r.y} ${r.z}")
+    }
     val vel = sensor.angularVelocityDegPerS()
     val ready = aim != null && autoCapture.withinLimits(aim, vel)
     _state.update { it.copy(cameraRotation = cam, current = target, aim = aim, angularVelDegPerS = vel, ready = ready,
