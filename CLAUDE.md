@@ -61,7 +61,7 @@ Android specifics are resolved in capture before the manifest is written.
   16 KB page size support.
 
 ## UI flow (overall)
-1. Home: "New panorama", "Capture ground" toggle (nadir, default on, remembers last choice),
+1. Home: "New panorama", "Capture ground" toggle (nadir, default off, remembers last choice),
    "Open 360 photo", list of sessions (thumbnail, date, state).
 2. Capture: camera preview, 3D targets, aiming ring, arrow, counter (e.g. 12/31),
    "Undo last shot", "Cancel", "Preview already captured images".
