@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- configChanges: rotating must not re-decode the panorama.
+             Empty taskAffinity: opened from another app (NEW_TASK) it must not land on top of the app's own task. -->
+        <activity
+            android:name=".ViewerActivity"
+            android:exported="true"
+            android:taskAffinity=""
+            android:label="@string/viewer_label"
+            android:screenOrientation="fullUser"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/jpeg" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

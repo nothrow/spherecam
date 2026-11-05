@@ -1,6 +1,7 @@
 package cz.nothrow.spherecam
 
 import android.content.Intent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -38,8 +39,12 @@ fun DetailScreen(sessionId: String, onBack: () -> Unit, onStitch: () -> Unit) {
   val scope = rememberCoroutineScope()
   var manifest by remember { mutableStateOf<Manifest?>(null) }
   var confirmDelete by remember { mutableStateOf(false) }
+  var confirmDeleteSources by remember { mutableStateOf(false) }
+  var hasSources by remember { mutableStateOf(false) }
   LaunchedEffect(sessionId) {
-    manifest = withContext(Dispatchers.IO) { runCatching { ctx.sessionStore().readManifest(sessionId) }.getOrNull() }
+    manifest = withContext(Dispatchers.IO) {
+      runCatching { ctx.sessionStore().run { readManifest(sessionId).also { hasSources = hasSources(sessionId) } } }.getOrNull()
+    }
     if (manifest == null) onBack()
   }
   val m = manifest ?: return
@@ -48,7 +53,7 @@ fun DetailScreen(sessionId: String, onBack: () -> Unit, onStitch: () -> Unit) {
   Scaffold { pad ->
     Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       val pano = File(ctx.sessionDir(sessionId), SessionStore.PANO)
-      if (pano.exists()) Thumb(pano, Modifier.fillMaxWidth().aspectRatio(2f), targetPx = 512)
+      if (pano.exists()) Thumb(pano, Modifier.fillMaxWidth().aspectRatio(2f).clickable { ctx.viewPano(pano) }, targetPx = 512)
       Text(stringResource(R.string.detail_created, formatDate(m.createdAt)))
       Text(stringResource(R.string.detail_status, stringResource(m.status.label())))
       Text(stringResource(R.string.detail_frames, m.frames.size))
@@ -64,8 +69,9 @@ fun DetailScreen(sessionId: String, onBack: () -> Unit, onStitch: () -> Unit) {
           }
         }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.mark_captured)) }
       }
+      if (pano.exists()) Button({ ctx.viewPano(pano) }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.view_pano)) }
       if (pano.exists()) Button({ ctx.sharePano(pano) }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.share_pano)) }
-      if (m.status != SessionStatus.CAPTURING) {
+      if (m.status != SessionStatus.CAPTURING && hasSources) {
         val again = m.status == SessionStatus.STITCHED || m.status == SessionStatus.FAILED
         Button(onStitch, Modifier.fillMaxWidth()) { Text(stringResource(if (again) R.string.stitch_again else R.string.stitch)) }
       }
@@ -83,6 +89,9 @@ fun DetailScreen(sessionId: String, onBack: () -> Unit, onStitch: () -> Unit) {
           ctx.startActivity(Intent.createChooser(send, ctx.getString(R.string.export_chooser)))
         }
       }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.export_zip)) }
+      if (pano.exists() && hasSources) {
+        OutlinedButton({ confirmDeleteSources = true }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.delete_sources)) }
+      }
       OutlinedButton({ confirmDelete = true }, Modifier.fillMaxWidth()) { Text(stringResource(R.string.delete)) }
       TextButton(onBack, Modifier.fillMaxWidth()) { Text(stringResource(R.string.back)) }
     }
@@ -102,6 +111,24 @@ fun DetailScreen(sessionId: String, onBack: () -> Unit, onStitch: () -> Unit) {
         }) { Text(stringResource(R.string.delete)) }
       },
       dismissButton = { TextButton({ confirmDelete = false }) { Text(stringResource(R.string.cancel)) } },
+    )
+  }
+
+  if (confirmDeleteSources) {
+    AlertDialog(
+      onDismissRequest = { confirmDeleteSources = false },
+      title = { Text(stringResource(R.string.delete_sources_title)) },
+      text = { Text(stringResource(R.string.delete_sources_text)) },
+      confirmButton = {
+        TextButton({
+          scope.launch {
+            withContext(Dispatchers.IO) { ctx.sessionStore().deleteSources(sessionId) }
+            hasSources = false
+            confirmDeleteSources = false
+          }
+        }) { Text(stringResource(R.string.delete)) }
+      },
+      dismissButton = { TextButton({ confirmDeleteSources = false }) { Text(stringResource(R.string.cancel)) } },
     )
   }
 }
