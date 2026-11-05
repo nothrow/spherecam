@@ -19,7 +19,7 @@ cmake -S "$root/stitcher" -B "$build" \
   -DOpenCV_DIR="$root/stitcher/.deps/opencv-android-arm64/sdk/native/jni"
 cmake --build "$build" -j"$(nproc)"
 
-tests=(convention cv_convention robust fallback nonadir emulator)
+tests=(convention cv_convention robust fallback nonadir emulator parallax)
 "$adb" "${serial[@]}" shell "rm -rf $dev && mkdir -p $dev/tmp $dev/testdata"
 # adb.exe needs Windows paths for local files.
 win() { if [[ "$adb" == *.exe ]]; then wslpath -w "$1"; else echo "$1"; fi; }
