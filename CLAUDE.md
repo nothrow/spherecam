@@ -45,9 +45,13 @@ developed and tested on desktop against sessions captured on the phone. Therefor
 Android specifics are resolved in capture before the manifest is written.
 
 ## Decisions for later phases (context only, do not implement now)
-- On-device stitching: OpenCV detailed pipeline, sensor rotations as initial estimate,
-  matching only between neighbours, BundleAdjusterRay, fallback to pure sensor rotations,
-  spherical warp to equirect, exposure compensation, seam finder, multiband blend.
+- On-device stitching: SIFT matching only between neighbours (fundamental-matrix RANSAC),
+  own bundle adjustment of a handheld capture (rotations tied to the sensors, camera centre =
+  body offset in the heading frame + lever in the camera frame, per-match depth via Schur
+  complement), fallback to pure sensor rotations, warp to equirect through a coarse depth map
+  (floor/ceiling planes + sphere corrected by triangulated points), exposure compensation,
+  seam finder, multiband blend. Real captures have strong parallax: people turn their body,
+  not the phone (test sessions in `captures/`).
 - Output 6144×3072 JPEG with GPano XMP, saved to Photos via MediaStore.
 - With nadir disabled, the bottom hole is filled by blurred stretching of edge pixels;
   output is always full-size 2:1.

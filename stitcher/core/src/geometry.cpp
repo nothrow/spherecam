@@ -41,25 +41,38 @@ cv::Point2d dirToPixel(const cv::Vec3d& d, int W, int H) {
     return {(kPi - lon) / (2 * kPi) * W - 0.5, (kPi / 2 - lat) / kPi * H - 0.5};
 }
 
+cv::Vec3d Camera::look(const cv::Vec3d& d, double gu, double gv) const {
+    if (!depth) return R.t() * d;
+    const int GW = depth->cols, GH = depth->rows;
+    double fu = std::floor(gu), fv = std::floor(gv), tu = gu - fu, tv = gv - fv;
+    int u0 = (((int)fu % GW) + GW) % GW, u1 = (u0 + 1) % GW;
+    int v0 = std::clamp((int)fv, 0, GH - 1), v1 = std::clamp((int)fv + 1, 0, GH - 1);
+    const float* r0 = depth->ptr<float>(v0);
+    const float* r1 = depth->ptr<float>(v1);
+    double t = (1 - tv) * ((1 - tu) * r0[u0] + tu * r0[u1]) + tv * ((1 - tu) * r1[u0] + tu * r1[u1]);
+    return R.t() * (d * t - C);
+}
+
 void buildMap(const Camera& cam, int W, int H, const cv::Rect& roi, cv::Mat& mapx, cv::Mat& mapy) {
     mapx.create(roi.size(), CV_32F);
     mapy.create(roi.size(), CV_32F);
-    std::vector<double> clon(roi.width), slon(roi.width);
+    std::vector<double> clon(roi.width), slon(roi.width), gu(roi.width);
+    const int GW = cam.depth ? cam.depth->cols : 1, GH = cam.depth ? cam.depth->rows : 1;
     for (int x = 0; x < roi.width; ++x) {
         double lon = kPi - (roi.x + x + 0.5) / W * 2 * kPi;
         clon[x] = std::cos(lon);
         slon[x] = std::sin(lon);
+        gu[x] = (roi.x + x + 0.5) / W * GW - 0.5;
     }
-    const cv::Matx33d Rt = cam.R.t();
     const double umax = cam.width - 1, vmax = cam.height - 1;
     cv::parallel_for_(cv::Range(0, roi.height), [&](const cv::Range& rows) {
         for (int y = rows.start; y < rows.end; ++y) {
             double lat = kPi / 2 - (roi.y + y + 0.5) / H * kPi;
-            double cl = std::cos(lat), sl = std::sin(lat);
+            double cl = std::cos(lat), sl = std::sin(lat), gv = (roi.y + y + 0.5) / H * GH - 0.5;
             float* mx = mapx.ptr<float>(y);
             float* my = mapy.ptr<float>(y);
             for (int x = 0; x < roi.width; ++x) {
-                cv::Vec3d c = Rt * cv::Vec3d(cl * clon[x], cl * slon[x], sl);
+                cv::Vec3d c = cam.look(cv::Vec3d(cl * clon[x], cl * slon[x], sl), gu[x], gv);
                 float u = -1, v = -1;
                 if (c[2] > 1e-6) {
                     double uu = cam.fx * c[0] / c[2] + cam.cx;
@@ -82,10 +95,10 @@ std::vector<cv::Rect> footprint(const Camera& cam, int W, int H, int pad) {
     const double mu = 0.05 * cam.width, mv = 0.05 * cam.height;
     std::vector<char> col(Wc, 0);
     int r0 = Hc, r1 = -1;
-    const cv::Matx33d Rt = cam.R.t();
+    const int GW = cam.depth ? cam.depth->cols : 1, GH = cam.depth ? cam.depth->rows : 1;
     for (int r = 0; r < Hc; ++r)
         for (int c = 0; c < Wc; ++c) {
-            cv::Vec3d p = Rt * pixelToDir(c, r, Wc, Hc);
+            cv::Vec3d p = cam.look(pixelToDir(c, r, Wc, Hc), (c + 0.5) / Wc * GW - 0.5, (r + 0.5) / Hc * GH - 0.5);
             if (p[2] <= 0.05) continue;
             double u = cam.fx * p[0] / p[2] + cam.cx, v = cam.fy * p[1] / p[2] + cam.cy;
             if (u < -mu || u > cam.width + mu || v < -mv || v > cam.height + mv) continue;

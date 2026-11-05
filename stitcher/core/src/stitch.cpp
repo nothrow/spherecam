@@ -56,11 +56,14 @@ void writeReport(const Result& r, const std::string& path) {
     fs << "rotationSource" << r.rotationSource << "fallbackReason" << r.fallbackReason;
     fs << "focal" << r.focal << "focalSource" << r.focalSource << "manifestFocal" << r.manifestFocal
        << "baRayResidualDeg" << r.baRayResidualDeg;
+    fs << "bodyOffset" << std::vector<double>{r.bodyOffset[0], r.bodyOffset[1], r.bodyOffset[2]}
+       << "lever" << std::vector<double>{r.lever[0], r.lever[1], r.lever[2]} << "depthModel" << !r.depth.empty();
     fs << "cameras" << "[";
     for (const auto& c : r.cameras) {
         fs << "{" << "index" << c.index << "source" << c.source << "reason" << c.reason
            << "deviationDeg" << c.deviationDeg << "gain" << std::vector<double>{c.gain[0], c.gain[1], c.gain[2]}
-           << "rotation" << std::vector<double>(c.rotation.val, c.rotation.val + 9) << "}";
+           << "rotation" << std::vector<double>(c.rotation.val, c.rotation.val + 9)
+           << "centre" << std::vector<double>{c.centre[0], c.centre[1], c.centre[2]} << "}";
     }
     fs << "]" << "pairs" << "[";
     for (const auto& p : r.pairs)

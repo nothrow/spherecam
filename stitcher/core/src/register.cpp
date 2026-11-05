@@ -3,17 +3,17 @@
 #include <numeric>
 
 #include <opencv2/features.hpp>
+#include <opencv2/flann.hpp>
+#include <opencv2/geometry.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/stitching/detail/matchers.hpp>
-#include <opencv2/stitching/detail/motion_estimators.hpp>
 
 #include "internal.hpp"
 
 namespace spherestitch {
 
-namespace dt = cv::detail;
-
 namespace {
+
+constexpr double kDeg = 180 / CV_PI;
 
 // Fraction of a sample grid of image j that lands inside image i under the sensor rotations.
 double overlap(const Session& s, const cv::Matx33d& Ri, const cv::Matx33d& Rj) {
@@ -36,87 +36,400 @@ int findRoot(std::vector<int>& p, int x) {
     return x;
 }
 
-struct BaOutput {
-    std::vector<cv::Matx33d> R;  // aligned to the sensor frame
-    std::vector<double> focal;   // registration-scale pixels
-    double residualDeg = 0;
-};
-
-double rayResidualDeg(const std::vector<int>& ids, const std::vector<dt::ImageFeatures>& feat,
-                      const std::vector<dt::MatchesInfo>& pm, int n, const BaOutput& b, double aspect,
-                      double ppx, double ppy) {
-    double sum = 0;
-    long cnt = 0;
-    for (size_t a = 0; a < ids.size(); ++a)
-        for (size_t c = a + 1; c < ids.size(); ++c) {
-            const dt::MatchesInfo& m = pm[ids[a] * n + ids[c]];
-            if (m.confidence <= 1) continue;
-            for (size_t k = 0; k < m.matches.size(); ++k) {
-                if (!m.inliers_mask[k]) continue;
-                cv::Point2f p1 = feat[ids[a]].keypoints[m.matches[k].queryIdx].pt;
-                cv::Point2f p2 = feat[ids[c]].keypoints[m.matches[k].trainIdx].pt;
-                cv::Vec3d d1 = b.R[a] * cv::Vec3d((p1.x - ppx) / b.focal[a], (p1.y - ppy) / (b.focal[a] * aspect), 1);
-                cv::Vec3d d2 = b.R[c] * cv::Vec3d((p2.x - ppx) / b.focal[c], (p2.y - ppy) / (b.focal[c] * aspect), 1);
-                double cs = d1.dot(d2) / (cv::norm(d1) * cv::norm(d2));
-                double ang = std::acos(std::clamp(cs, -1.0, 1.0)) * 180 / CV_PI;
-                sum += ang * ang;
-                ++cnt;
-            }
-        }
-    return cnt ? std::sqrt(sum / cnt) : 0;
+cv::Matx33d expRot(const cv::Vec3d& w) {
+    double t = cv::norm(w);
+    if (t < 1e-12) return cv::Matx33d::eye();
+    cv::Vec3d k = w / t;
+    cv::Matx33d K(0, -k[2], k[1], k[2], 0, -k[0], -k[1], k[0], 0);
+    return cv::Matx33d::eye() + std::sin(t) * K + (1 - std::cos(t)) * K * K;
 }
 
-// fixedFocal == 0: BundleAdjusterRay refines rotations and per-camera focal, starting from the sensors.
-// fixedFocal > 0: BundleAdjusterReproj refines rotations only, starting from `init`, with that shared focal.
-bool runBa(const std::vector<int>& ids, const std::vector<dt::ImageFeatures>& feat,
-           const std::vector<dt::MatchesInfo>& pm, int n, const Session& s, double scale, double fixedFocal,
-           const std::vector<cv::Matx33d>& init, BaOutput& out) {
-    const int k = (int)ids.size();
-    std::vector<dt::ImageFeatures> f(k);
-    std::vector<dt::MatchesInfo> m(k * k);
-    std::vector<dt::CameraParams> cams(k);
-    for (int a = 0; a < k; ++a) {
-        f[a] = feat[ids[a]];
-        f[a].img_idx = a;
-        for (int c = 0; c < k; ++c) {
-            m[a * k + c] = pm[ids[a] * n + ids[c]];
-            m[a * k + c].src_img_idx = a;
-            m[a * k + c].dst_img_idx = c;
-        }
-        cams[a].focal = fixedFocal > 0 ? fixedFocal : s.fx * scale;
-        cams[a].aspect = s.fy / s.fx;
-        cams[a].ppx = s.cx * scale;
-        cams[a].ppy = s.cy * scale;
-        cv::Mat(fixedFocal > 0 ? init[a] : s.frames[ids[a]].R).convertTo(cams[a].R, CV_32F);
-    }
-    cv::Ptr<dt::BundleAdjusterBase> ba;
-    if (fixedFocal > 0) {
-        ba = cv::makePtr<dt::BundleAdjusterReproj>();
-        ba->setRefinementMask(cv::Mat::zeros(3, 3, CV_8U));
-    } else {
-        ba = cv::makePtr<dt::BundleAdjusterRay>();
-    }
-    ba->setConfThresh(1.0);
-    // OpenCV's default (1000 iterations, DBL_EPSILON) keeps iterating long after the rotations stop moving.
-    ba->setTermCriteria(cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 100, 1e-6));
-    if (!(*ba)(f, m, cams)) return false;
+// Matched pixel pair at registration scale.
+struct Match {
+    int i, j;
+    cv::Point2d pi, pj;
+};
 
-    std::vector<cv::Matx33d> raw(k), sensor(k);
-    out.R.resize(k);
-    out.focal.resize(k);
-    for (int a = 0; a < k; ++a) {
-        cv::Mat r;
-        cams[a].R.convertTo(r, CV_64F);
-        raw[a] = nearestRotation(cv::Matx33d(r));
-        sensor[a] = s.frames[ids[a]].R;
-        out.focal[a] = cams[a].focal;
-        if (!std::isfinite(cams[a].focal) || cams[a].focal <= 0) return false;
+// Registration-scale intrinsics; f is the variable shared focal, fy = f * aspect.
+struct Intr {
+    double f, aspect, cx, cy;
+    cv::Vec3d ray(const cv::Point2d& p) const { return {(p.x - cx) / f, (p.y - cy) / (f * aspect), 1}; }
+};
+
+// Rotation-only alignment of a pair (R_j^T R_i from the images): Kabsch on rays, refit a few times on the
+// rays it explains, since a single stray match tilts a plain least-squares fit by a degree.
+cv::Matx33d pairRotation(const std::vector<Match>& ms, const Intr& k) {
+    std::vector<cv::Vec3d> A, B;
+    for (const Match& x : ms) {
+        A.push_back(cv::normalize(k.ray(x.pi)));
+        B.push_back(cv::normalize(k.ray(x.pj)));
     }
-    // BA leaves the global rotation free (it pins it to some centre image); put it back into the sensor frame.
-    cv::Matx33d G = alignRotations(raw, sensor);
-    for (int a = 0; a < k; ++a) out.R[a] = G * raw[a];
-    out.residualDeg = rayResidualDeg(ids, feat, pm, n, out, s.fy / s.fx, s.cx * scale, s.cy * scale);
-    return true;
+    cv::Matx33d R = cv::Matx33d::eye();
+    std::vector<double> e(A.size(), 0);
+    for (int it = 0; it < 4; ++it) {
+        double lim = INFINITY;
+        if (it > 0) {
+            std::vector<double> s = e;
+            std::nth_element(s.begin(), s.begin() + s.size() / 2, s.end());
+            lim = std::max(3 * s[s.size() / 2], 2 / k.f);
+        }
+        cv::Matx33d m = cv::Matx33d::zeros();
+        for (size_t q = 0; q < A.size(); ++q)
+            if (e[q] <= lim) m += B[q] * A[q].t();
+        R = nearestRotation(m);
+        for (size_t q = 0; q < A.size(); ++q) e[q] = cv::norm(R * A[q] - B[q]);
+    }
+    return R;
+}
+
+// Median reprojection error in pixels of image j under the best pure rotation.
+double pairResidualSq(const std::vector<Match>& ms, const Intr& k) {
+    cv::Matx33d R = pairRotation(ms, k);
+    std::vector<double> e;
+    for (const Match& x : ms) {
+        cv::Vec3d a = R * k.ray(x.pi);
+        if (a[2] <= 1e-6) {
+            e.push_back(1e9);
+            continue;
+        }
+        e.push_back(std::hypot(k.f * a[0] / a[2] + k.cx - x.pj.x, k.f * k.aspect * a[1] / a[2] + k.cy - x.pj.y));
+    }
+    // Parallax and stray matches inflate the tail; the median tracks the focal.
+    std::nth_element(e.begin(), e.begin() + e.size() / 2, e.end());
+    return e[e.size() / 2] * e[e.size() / 2];
+}
+
+// Shared focal that best explains all pairs as pure rotations; only used when the manifest focal is far off
+// (the emulator reports about half the real one). Real phones report a good focal, and parallax biases this.
+double searchFocal(const std::vector<std::vector<Match>>& pairs, Intr k) {
+    auto cost = [&](double f) {
+        k.f = f;
+        double c = 0;
+        // Capped: a mismatched pair fits no focal and would otherwise dominate.
+        for (const auto& ms : pairs) c += std::min(pairResidualSq(ms, k), 64.0);
+        return c;
+    };
+    const double f0 = k.f;
+    double best = f0, bestCost = cost(f0);
+    for (double s = 0.4; s <= 2.6; s *= 1.05) {
+        double c = cost(f0 * s);
+        if (c < bestCost) bestCost = c, best = f0 * s;
+    }
+    double lo = best / 1.05, hi = best * 1.05;
+    for (int it = 0; it < 20; ++it) {
+        double a = lo + (hi - lo) * 0.382, b = lo + (hi - lo) * 0.618;
+        if (cost(a) < cost(b)) hi = b;
+        else lo = a;
+    }
+    return (lo + hi) / 2;
+}
+
+// Heading of a camera as a rotation about world z: x axis -> horizontal viewing direction. Uses image-up near
+// the poles, where the viewing direction has no horizontal part (the capture keeps image-up toward the heading
+// when looking down and away from it when looking up).
+cv::Matx33d headingOf(const cv::Matx33d& R) {
+    cv::Vec3d z(R(0, 2), R(1, 2), R(2, 2)), up(-R(0, 1), -R(1, 1), -R(2, 1));
+    double sp = z[2], cp = std::hypot(z[0], z[1]);
+    double hx = z[0] * cp - up[0] * sp, hy = z[1] * cp - up[1] * sp, hn = std::hypot(hx, hy);
+    if (hn < 1e-9) return cv::Matx33d::eye();
+    hx /= hn;
+    hy /= hn;
+    return {hx, -hy, 0, hy, hx, 0, 0, 0, 1};
+}
+
+// Bundle adjustment of a handheld capture. The camera centre is not fixed: people turn their body to change
+// heading and tilt the phone with wrist or elbow. So C_i = H_i B + R_i L: B is the phone's offset from the
+// body axis in the heading frame (x forward, z up), L a lever in the camera frame. Each match gets its own
+// inverse depth along the ray of camera i (anchored point), which the normal equations eliminate per match
+// (Schur complement), leaving a dense system over rotations, B, L and focal only. Rotations are tied to the
+// sensors by a prior, which also fixes the global rotation. A weak prior on the inverse depths fixes the
+// scale between offsets and scene, and keeps depth defined when there is no parallax.
+struct Ba {
+    static constexpr int G = 7;  // shared parameters: B, L, log focal
+    using Shared = cv::Vec<double, G>;
+
+    const std::vector<Match>& ms;
+    std::vector<int> cam;           // session index -> BA index, -1 if not solved
+    std::vector<cv::Matx33d> R0, H; // sensor rotations and headings of solved cameras
+    Intr k0;
+    bool lever = true;
+
+    // State
+    std::vector<cv::Vec3d> w;       // R = exp(w) R0
+    Shared g = Shared::all(0);
+    std::vector<double> rho;
+    std::vector<char> active;       // match used (not an outlier, both cameras solved)
+
+    static constexpr double kHuber = 2.0;          // px
+    // Gyro drift makes the absolute sensor rotation wander by several degrees over a capture, while the
+    // rotation between frames taken one after another stays good: tie the corrections of consecutive frames
+    // (frames are in capture order) tightly, and the absolute ones only loosely.
+    static constexpr double kSigmaRot = 10 / kDeg;
+    static constexpr double kSigmaRelRot = 2 / kDeg;
+    static constexpr double kSigmaRho = 1.0;
+    static constexpr double kSigmaOffset = 10.0;
+    // Tight when the manifest focal is trusted: moving the camera along its axis looks like a zoom for near
+    // points, so focal and offsets trade off.
+    double sigmaLogF = 0.02;
+
+    Ba(const std::vector<Match>& m, const std::vector<int>& ids, const Session& s, const Intr& k, bool useLever)
+        : ms(m), cam(s.frames.size(), -1), k0(k), lever(useLever) {
+        for (size_t a = 0; a < ids.size(); ++a) {
+            cam[ids[a]] = (int)a;
+            R0.push_back(s.frames[ids[a]].R);
+            H.push_back(headingOf(s.frames[ids[a]].R));
+        }
+        w.assign(ids.size(), cv::Vec3d(0, 0, 0));
+        rho.assign(ms.size(), 1.0);
+        active.resize(ms.size());
+        for (size_t m_ = 0; m_ < ms.size(); ++m_) active[m_] = cam[ms[m_].i] >= 0 && cam[ms[m_].j] >= 0;
+    }
+
+    int np() const { return 3 * (int)w.size() + G; }
+    cv::Matx33d rot(int a) const { return expRot(w[a]) * R0[a]; }
+    double focal() const { return k0.f * std::exp(g[6]); }
+    static cv::Vec3d B(const Shared& v) { return {v[0], v[1], v[2]}; }
+    static cv::Vec3d L(const Shared& v) { return {v[3], v[4], v[5]}; }
+    cv::Vec3d centre(int a, const cv::Matx33d& R, const Shared& v) const { return H[a] * B(v) + R * L(v); }
+    cv::Vec3d centre(int a) const { return centre(a, rot(a), g); }
+
+    cv::Vec2d residual(const Match& x, const cv::Matx33d& Ri, const cv::Matx33d& Rj, const Shared& v,
+                       double r) const {
+        Intr k = k0;
+        k.f = k0.f * std::exp(v[6]);
+        int ai = cam[x.i], aj = cam[x.j];
+        cv::Vec3d a = Ri * k.ray(x.pi);
+        cv::Vec3d p = cv::normalize(Rj.t() * (r * (centre(ai, Ri, v) - centre(aj, Rj, v)) + a));
+        // Ray error in the tangent plane of the observed ray, scaled to pixels: bounded and smooth even for a
+        // point that lands behind the camera, where a projective residual explodes.
+        cv::Vec3d b = cv::normalize(k.ray(x.pj));
+        cv::Vec3d t1 = cv::normalize(cv::Vec3d(1, 0, 0) - b * b[0]), t2 = b.cross(t1);
+        return {k.f * t1.dot(p - b), k.f * t2.dot(p - b)};
+    }
+
+    double robustWeight(const cv::Vec2d& r) const {
+        double n = cv::norm(r);
+        return n <= kHuber ? 1 : kHuber / n;
+    }
+
+    double priorCost() const {
+        double c = 0;
+        for (const auto& v : w) c += v.dot(v) / (kSigmaRot * kSigmaRot);
+        for (size_t a = 1; a < w.size(); ++a) {
+            cv::Vec3d d = w[a] - w[a - 1];
+            c += d.dot(d) / (kSigmaRelRot * kSigmaRelRot);
+        }
+        for (int q = 0; q < 6; ++q) c += g[q] * g[q] / (kSigmaOffset * kSigmaOffset);
+        return c + g[6] * g[6] / (sigmaLogF * sigmaLogF);
+    }
+
+    double cost() const {
+        double c = priorCost();
+        std::vector<cv::Matx33d> R(w.size());
+        for (size_t a = 0; a < w.size(); ++a) R[a] = rot((int)a);
+        for (size_t m_ = 0; m_ < ms.size(); ++m_) {
+            if (!active[m_]) continue;
+            const Match& x = ms[m_];
+            double n = cv::norm(residual(x, R[cam[x.i]], R[cam[x.j]], g, rho[m_]));
+            c += n <= kHuber ? n * n : 2 * kHuber * n - kHuber * kHuber;
+            c += (rho[m_] - 1) * (rho[m_] - 1) / (kSigmaRho * kSigmaRho);
+        }
+        return c;
+    }
+
+    // One Levenberg-Marquardt step with damping lambda; returns false if the system could not be solved.
+    bool step(double lambda) {
+        constexpr int K = 6 + G;  // parameters one match touches besides its depth
+        const int P = np(), n = (int)w.size();
+        cv::Mat A = cv::Mat::zeros(P, P, CV_64F), b = cv::Mat::zeros(P, 1, CV_64F);
+        std::vector<cv::Matx33d> R(n);
+        for (int a = 0; a < n; ++a) R[a] = rot(a);
+        struct Back {
+            double V, g;
+            cv::Vec<double, K> wv;
+            int idx[K];
+        };
+        std::vector<Back> back(ms.size());
+        const double h = 1e-6;
+        for (size_t m_ = 0; m_ < ms.size(); ++m_) {
+            if (!active[m_]) continue;
+            const Match& x = ms[m_];
+            int ai = cam[x.i], aj = cam[x.j];
+            cv::Vec2d r0 = residual(x, R[ai], R[aj], g, rho[m_]);
+            double wt = robustWeight(r0);
+            cv::Matx<double, 2, K> J;
+            Back bk;
+            for (int c = 0; c < 3; ++c) {
+                cv::Vec3d d(0, 0, 0);
+                d[c] = h;
+                cv::Vec2d ri = (residual(x, expRot(w[ai] + d) * R0[ai], R[aj], g, rho[m_]) - r0) / h;
+                cv::Vec2d rj = (residual(x, R[ai], expRot(w[aj] + d) * R0[aj], g, rho[m_]) - r0) / h;
+                for (int q = 0; q < 2; ++q) {
+                    J(q, c) = ri[q];
+                    J(q, 3 + c) = rj[q];
+                }
+                bk.idx[c] = 3 * ai + c;
+                bk.idx[3 + c] = 3 * aj + c;
+            }
+            for (int c = 0; c < G; ++c) {
+                bk.idx[6 + c] = 3 * n + c;
+                if (c < 6 && !lever) {
+                    J(0, 6 + c) = J(1, 6 + c) = 0;
+                    continue;
+                }
+                Shared gv = g;
+                gv[c] += h;
+                cv::Vec2d rg = (residual(x, R[ai], R[aj], gv, rho[m_]) - r0) / h;
+                J(0, 6 + c) = rg[0];
+                J(1, 6 + c) = rg[1];
+            }
+            double hr = h * std::max(1.0, rho[m_]);
+            cv::Vec2d Jr = (residual(x, R[ai], R[aj], g, rho[m_] + hr) - r0) / hr;
+
+            cv::Matx<double, K, K> U = wt * J.t() * J;
+            cv::Vec<double, K> gc = wt * J.t() * r0;
+            bk.wv = wt * J.t() * Jr;
+            bk.V = (wt * Jr.dot(Jr) + 1 / (kSigmaRho * kSigmaRho)) * (1 + lambda) + 1e-12;
+            bk.g = wt * Jr.dot(r0) + (rho[m_] - 1) / (kSigmaRho * kSigmaRho);
+            for (int p = 0; p < K; ++p) {
+                b.at<double>(bk.idx[p]) += gc[p] - bk.wv[p] * bk.g / bk.V;
+                for (int q = 0; q < K; ++q)
+                    A.at<double>(bk.idx[p], bk.idx[q]) += U(p, q) - bk.wv[p] * bk.wv[q] / bk.V;
+            }
+            back[m_] = bk;
+        }
+        const double ia = 1 / (kSigmaRot * kSigmaRot), ir = 1 / (kSigmaRelRot * kSigmaRelRot);
+        for (int a = 0; a < n; ++a)
+            for (int c = 0; c < 3; ++c) {
+                A.at<double>(3 * a + c, 3 * a + c) += ia;
+                b.at<double>(3 * a + c) += w[a][c] * ia;
+                if (a == 0) continue;
+                int p = 3 * a + c, q = 3 * (a - 1) + c;
+                double d = w[a][c] - w[a - 1][c];
+                A.at<double>(p, p) += ir;
+                A.at<double>(q, q) += ir;
+                A.at<double>(p, q) -= ir;
+                A.at<double>(q, p) -= ir;
+                b.at<double>(p) += d * ir;
+                b.at<double>(q) -= d * ir;
+            }
+        for (int c = 0; c < G; ++c) {
+            double s2 = c == 6 ? sigmaLogF * sigmaLogF : kSigmaOffset * kSigmaOffset;
+            A.at<double>(3 * n + c, 3 * n + c) += c < 6 && !lever ? 1 : 1 / s2;
+            b.at<double>(3 * n + c) += g[c] / s2;
+        }
+        for (int p = 0; p < P; ++p) A.at<double>(p, p) *= 1 + lambda;
+
+        cv::Mat d;
+        if (!cv::solve(A, -b, d, cv::DECOMP_CHOLESKY)) return false;
+        for (int a = 0; a < n; ++a)
+            for (int c = 0; c < 3; ++c) w[a][c] += d.at<double>(3 * a + c);
+        for (int c = 0; c < G; ++c)
+            if (c == 6 || lever) g[c] += d.at<double>(3 * n + c);
+        for (size_t m_ = 0; m_ < ms.size(); ++m_) {
+            if (!active[m_]) continue;
+            const Back& bk = back[m_];
+            double s = bk.g;
+            for (int p = 0; p < K; ++p) s += bk.wv[p] * d.at<double>(bk.idx[p]);
+            rho[m_] = std::max(0.0, rho[m_] - s / bk.V);
+        }
+        return true;
+    }
+
+    void solve(Reporter& rep, double from, double to) {
+        double lambda = 1e-3, c = cost();
+        const int maxIter = 60;
+        for (int it = 0; it < maxIter; ++it) {
+            auto saved = std::make_tuple(w, g, rho);
+            bool ok = step(lambda);
+            double c2 = ok ? cost() : INFINITY;
+            if (c2 < c) {
+                bool done = (c - c2) < 1e-7 * c;
+                c = c2;
+                lambda = std::max(1e-9, lambda / 3);
+                if (done) break;
+            } else {
+                std::tie(w, g, rho) = saved;
+                lambda *= 8;
+                if (lambda > 1e8) break;
+            }
+            rep.step(from + (to - from) * (it + 1) / maxIter);
+        }
+    }
+
+    // Residuals in px of the active matches.
+    std::vector<double> errors() const {
+        std::vector<double> e;
+        for (size_t m_ = 0; m_ < ms.size(); ++m_) {
+            if (!active[m_]) continue;
+            const Match& x = ms[m_];
+            e.push_back(cv::norm(residual(x, rot(cam[x.i]), rot(cam[x.j]), g, rho[m_])));
+        }
+        return e;
+    }
+
+    void dropOutliers() {
+        std::vector<double> e = errors(), s = e;
+        if (s.empty()) return;
+        std::nth_element(s.begin(), s.begin() + s.size() / 2, s.end());
+        const double lim = std::max(3 * kHuber, 4 * s[s.size() / 2]);
+        size_t k = 0;
+        for (size_t m_ = 0; m_ < ms.size(); ++m_)
+            if (active[m_]) active[m_] = e[k++] <= lim;
+    }
+};
+
+// Scene distance from the pivot on a coarse equirect grid: floor/ceiling planes and a sphere where points
+// support them, corrected locally by the log-ratio of the triangulated points (normalized convolution).
+cv::Mat depthGrid(const std::vector<cv::Vec3d>& pts) {
+    const int GW = 128, GH = 64;
+    std::vector<double> dist, floorZ, ceilZ, wallD;
+    for (const auto& p : pts) {
+        double d = cv::norm(p), pitch = std::asin(std::clamp(p[2] / d, -1.0, 1.0)) * kDeg;
+        dist.push_back(d);
+        if (pitch < -35) floorZ.push_back(-p[2]);
+        if (pitch > 35) ceilZ.push_back(p[2]);
+        if (std::abs(pitch) < 30) wallD.push_back(d);
+    }
+    auto median = [](std::vector<double> v) {
+        std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+        return v[v.size() / 2];
+    };
+    const size_t minPts = 20;
+    const double sphere = median(wallD.size() >= minPts ? wallD : dist);
+    const double hf = floorZ.size() >= minPts ? median(floorZ) : 0, hc = ceilZ.size() >= minPts ? median(ceilZ) : 0;
+    auto base = [&](const cv::Vec3d& d) {
+        double t = sphere;
+        if (hf > 0 && d[2] < -1e-6) t = std::min(t, hf / -d[2]);
+        if (hc > 0 && d[2] > 1e-6) t = std::min(t, hc / d[2]);
+        return t;
+    };
+
+    cv::Mat num = cv::Mat::zeros(GH, GW, CV_64F), den = cv::Mat::zeros(GH, GW, CV_64F);
+    for (size_t k = 0; k < pts.size(); ++k) {
+        cv::Vec3d d = pts[k] / dist[k];
+        double lr = std::log(dist[k] / base(d));
+        if (std::abs(lr) > 2) continue;
+        cv::Point2d g = dirToPixel(d, GW, GH);
+        int gx = ((int)std::lround(g.x) % GW + GW) % GW, gy = std::clamp((int)std::lround(g.y), 0, GH - 1);
+        num.at<double>(gy, gx) += lr;
+        den.at<double>(gy, gx) += 1;
+    }
+    auto blur = [](const cv::Mat& a) {
+        const double sigma = 2.5;
+        const int pad = (int)(4 * sigma);
+        cv::Mat p, out;
+        cv::copyMakeBorder(a, p, 0, 0, pad, pad, cv::BORDER_WRAP);
+        cv::GaussianBlur(p, out, cv::Size(), sigma, sigma, cv::BORDER_REPLICATE);
+        return out.colRange(pad, pad + a.cols).clone();
+    };
+    // +0.5: a few points pull the proxy only part of the way.
+    cv::Mat corr = blur(num) / (blur(den) + 0.5);
+    cv::Mat grid(GH, GW, CV_32F);
+    for (int y = 0; y < GH; ++y)
+        for (int x = 0; x < GW; ++x)
+            grid.at<float>(y, x) = (float)(base(pixelToDir(x, y, GW, GH)) * std::exp(corr.at<double>(y, x)));
+    return grid;
 }
 
 }  // namespace
@@ -136,15 +449,16 @@ void registerCameras(const Session& s, const Options& o, Reporter& rep, Result& 
     r.manifestFocal = s.fx;
 
     rep.begin(Phase::Features);
-    std::vector<dt::ImageFeatures> feat(n);
+    std::vector<std::vector<cv::KeyPoint>> kps(n);
+    std::vector<cv::Mat> desc(n);
     {
         // Low contrast threshold: walls, ceilings and floors are smooth; default 0.04 finds almost nothing there.
         cv::Ptr<cv::SIFT> sift = cv::SIFT::create(3000, 3, 0.01);
         for (int i = 0; i < n; ++i) {
-            cv::Mat img = readImage(s.frames[i].path, s), small;
+            cv::Mat img = readImage(s.frames[i].path, s), small, gray;
             cv::resize(img, small, cv::Size(), scale, scale, cv::INTER_AREA);
-            dt::computeImageFeatures(sift, small, feat[i]);
-            feat[i].img_idx = i;
+            cv::cvtColor(small, gray, cv::COLOR_BGR2GRAY);
+            sift->detectAndCompute(gray, cv::noArray(), kps[i], desc[i]);
             rep.step((i + 1.0) / n);
         }
     }
@@ -157,75 +471,80 @@ void registerCameras(const Session& s, const Options& o, Reporter& rep, Result& 
             if (std::max(overlap(s, s.frames[i].R, s.frames[j].R), overlap(s, s.frames[j].R, s.frames[i].R)) > 0.05)
                 cand.emplace_back(i, j);
 
-    std::vector<dt::MatchesInfo> pm(n * n);
-    for (int i = 0; i < n; ++i)
-        for (int j = 0; j < n; ++j) {
-            pm[i * n + j].src_img_idx = i;
-            pm[i * n + j].dst_img_idx = j;
-        }
-    // No upper confidence limit: OpenCV drops "too similar" pairs as duplicates, but the sensors already tell
-    // us the pair geometry, and synthetic or very sharp overlaps would be thrown away.
-    dt::BestOf2NearestMatcher matcher(false, 0.3f, 6, 6, 1e9);
-    const double f0 = s.fx * scale, aspect = s.fy / s.fx;
+    // Geometric verification with the fundamental matrix: unlike a homography it accepts parallax, and unlike
+    // the essential matrix it does not need the focal, which may still be wrong here.
+    std::vector<std::vector<Match>> pairMatches(cand.size());
+    std::vector<int> rawMatches(cand.size(), 0);
     const int batch = std::max(1, cv::getNumThreads());
-    std::vector<double> relErr(cand.size(), 0);
     for (size_t b0 = 0; b0 < cand.size(); b0 += batch) {
         size_t b1 = std::min(cand.size(), b0 + batch);
         cv::parallel_for_(cv::Range((int)b0, (int)b1), [&](const cv::Range& rg) {
             for (int p = rg.start; p < rg.end; ++p) {
                 auto [i, j] = cand[p];
-                cv::theRNG() = cv::RNG(0x5eed + p);  // RANSAC must not depend on thread scheduling
-                dt::MatchesInfo m;
                 // FLANN cannot index an empty descriptor set (e.g. a uniform image).
-                if (feat[i].keypoints.size() >= 6 && feat[j].keypoints.size() >= 6) matcher(feat[i], feat[j], m);
-                m.src_img_idx = i;
-                m.dst_img_idx = j;
-                if (!m.H.empty() && m.num_inliers >= 6) {
-                    // Matcher H works on coordinates centred at the image middle.
-                    cv::Matx33d K(f0, 0, s.cx * scale - feat[i].img_size.width * 0.5, 0, f0 * aspect,
-                                  s.cy * scale - feat[i].img_size.height * 0.5, 0, 0, 1);
-                    cv::Matx33d M = K.inv() * cv::Matx33d(m.H) * K;
-                    double det = cv::determinant(M);
-                    relErr[p] = det == 0 ? 180
-                                         : angleDeg(nearestRotation(M * (1 / std::cbrt(det))),
-                                                    s.frames[j].R.t() * s.frames[i].R);
-                } else {
-                    relErr[p] = 180;
-                }
-                if (relErr[p] > o.maxRelativeRotationDeg) m.confidence = 0;
-                // BA cost grows with every correspondence; ~150 spread over the overlap constrain a rotation plenty.
-                const int maxInliers = 150;
-                if (m.num_inliers > maxInliers) {
-                    int seen = 0, kept = 0;
-                    for (auto& in : m.inliers_mask)
-                        if (in && (long)seen++ * maxInliers / m.num_inliers >= kept) ++kept;
-                        else in = 0;
-                    m.num_inliers = kept;
-                }
-                dt::MatchesInfo d = m;
-                d.src_img_idx = j;
-                d.dst_img_idx = i;
-                if (!m.H.empty()) d.H = m.H.inv();
-                for (auto& mt : d.matches) std::swap(mt.queryIdx, mt.trainIdx);
-                pm[i * n + j] = std::move(m);
-                pm[j * n + i] = std::move(d);
+                if (kps[i].size() < 8 || kps[j].size() < 8) continue;
+                cv::theRNG() = cv::RNG(0x5eed + p);  // RANSAC must not depend on thread scheduling
+                std::vector<std::vector<cv::DMatch>> knn;
+                cv::FlannBasedMatcher().knnMatch(desc[i], desc[j], knn, 2);
+                std::vector<cv::Point2f> a, b;
+                for (const auto& k : knn)
+                    if (k.size() == 2 && k[0].distance < 0.7f * k[1].distance) {
+                        a.push_back(kps[i][k[0].queryIdx].pt);
+                        b.push_back(kps[j][k[0].trainIdx].pt);
+                    }
+                rawMatches[p] = (int)a.size();
+                if (a.size() < 15) continue;
+                std::vector<uchar> mask;
+                cv::Mat F = cv::findFundamentalMat(a, b, cv::FM_RANSAC, 1.5, 0.999, 2000, mask);
+                if (F.empty()) continue;
+                for (size_t k = 0; k < a.size(); ++k)
+                    if (mask[k]) pairMatches[p].push_back({i, j, a[k], b[k]});
             }
         });
-        rep.step((double)b1 / cand.size());
+        rep.step((double)b1 / cand.size() * 0.5);
     }
+
+    Intr k{s.fx * scale, s.fy / s.fx, s.cx * scale, s.cy * scale};
+    bool focalSearched = false;
+    {
+        std::vector<std::vector<Match>> good;
+        for (const auto& pm : pairMatches)
+            if (pm.size() >= 30) good.push_back(pm);
+        if (!good.empty()) {
+            double f = searchFocal(good, k);
+            if (std::abs(std::log(f / k.f)) > std::log(1.25)) {
+                k.f = f;
+                focalSearched = true;
+            }
+        }
+    }
+    rep.step(0.7);
+
+    // Pairs whose image rotation contradicts the sensors are mismatches (repeated patterns, swapped frames).
+    std::vector<Match> matches;
+    std::vector<int> parent(n);
+    std::iota(parent.begin(), parent.end(), 0);
     for (size_t p = 0; p < cand.size(); ++p) {
         auto [i, j] = cand[p];
-        const dt::MatchesInfo& m = pm[i * n + j];
-        r.pairs.push_back({s.frames[i].index, s.frames[j].index, m.num_inliers, m.confidence, relErr[p],
-                           m.confidence > 1});
+        const auto& pm = pairMatches[p];
+        int inl = (int)pm.size();
+        double relErr = 180, conf = inl / (8 + 0.3 * rawMatches[p]);
+        if (inl >= 8) relErr = angleDeg(pairRotation(pm, k), s.frames[j].R.t() * s.frames[i].R);
+        bool accepted = inl >= 15 && conf > 1 && relErr <= o.maxRelativeRotationDeg;
+        if (accepted) {
+            // The fundamental matrix is degenerate for a pure rotation and keeps stray matches near epipolar
+            // lines. Parallax beyond this angle only comes from objects within arm's reach.
+            cv::Matx33d Rp = pairRotation(pm, k);
+            for (const Match& x : pm)
+                if (cv::normalize(Rp * k.ray(x.pi)).dot(cv::normalize(k.ray(x.pj))) > std::cos(12 / kDeg))
+                    matches.push_back(x);
+            parent[findRoot(parent, i)] = findRoot(parent, j);
+        }
+        r.pairs.push_back({s.frames[i].index, s.frames[j].index, inl, accepted ? conf : 0, relErr, accepted});
     }
     rep.end();
 
     rep.begin(Phase::BundleAdjust);
-    std::vector<int> parent(n);
-    std::iota(parent.begin(), parent.end(), 0);
-    for (const auto& [i, j] : cand)
-        if (pm[i * n + j].confidence > 1) parent[findRoot(parent, i)] = findRoot(parent, j);
     std::vector<int> size(n, 0);
     for (int i = 0; i < n; ++i) ++size[findRoot(parent, i)];
     int root = (int)(std::max_element(size.begin(), size.end()) - size.begin());
@@ -237,60 +556,109 @@ void registerCameras(const Session& s, const Options& o, Reporter& rep, Result& 
             r.cameras[i].reason = "no-consistent-matches";
     }
 
-    // Pass 1 (Ray) estimates the focal: manifest intrinsics can be far off (the emulator reports about half
-    // the real focal). Pass 2 (Reproj, rotations only) re-solves with the one shared focal used for warping,
-    // so rotations and focal stay consistent.
-    BaOutput ba;
-    bool ok = false;
-    double focal = s.fx * scale;
-    for (int iter = 0; iter < 3 && ids.size() >= 2; ++iter) {
-        BaOutput first;
-        if (!runBa(ids, feat, pm, n, s, scale, 0, {}, first)) {
-            r.fallbackReason = "ba-failed";
-            break;
+    const std::vector<int> connected = ids;
+    std::unique_ptr<Ba> ba;
+    auto solveAll = [&](bool lever) {
+        ids = connected;
+        for (int i : ids) r.cameras[i].reason.clear();
+        for (int iter = 0; iter < 3 && ids.size() >= 2; ++iter) {
+            ba = std::make_unique<Ba>(matches, ids, s, k, lever);
+            if (focalSearched) ba->sigmaLogF = 0.1;
+            ba->solve(rep, 0, 0.5);
+            ba->dropOutliers();
+            ba->solve(rep, 0.5, 0.9);
+            std::vector<int> keep;
+            for (size_t a = 0; a < ids.size(); ++a) {
+                if (cv::norm(ba->w[a]) * kDeg > o.maxCameraDeviationDeg)
+                    r.cameras[ids[a]].reason = "ba-deviates-from-sensor";
+                else
+                    keep.push_back(ids[a]);
+            }
+            if (keep.size() == ids.size()) return true;
+            ids = keep;  // the outlier also pulled its neighbours, so solve again without it
         }
-        std::vector<double> fs = first.focal, dev;
-        std::nth_element(fs.begin(), fs.begin() + fs.size() / 2, fs.end());
-        focal = fs[fs.size() / 2];
-        for (double f : first.focal) dev.push_back(std::abs(f - focal));
-        std::nth_element(dev.begin(), dev.begin() + dev.size() / 2, dev.end());
-        // All cameras are the same lens; disagreeing focals mean BA did not converge to the real geometry.
-        if (dev[dev.size() / 2] > 0.05 * focal) {
-            r.fallbackReason = "ba-focal-inconsistent";
-            break;
+        return false;
+    };
+    bool ok = solveAll(o.parallax);
+    std::vector<cv::Vec3d> pts;
+    double unit = 1;
+    auto triangulate = [&]() {
+        pts.clear();
+        Intr kf = k;
+        kf.f = ba->focal();
+        for (size_t m_ = 0; m_ < matches.size(); ++m_) {
+            if (!ba->active[m_] || ba->rho[m_] <= 1e-6) continue;
+            const Match& x = matches[m_];
+            cv::Matx33d Ri = ba->rot(ba->cam[x.i]);
+            pts.push_back(ba->centre(ba->cam[x.i]) + Ri * kf.ray(x.pi) / ba->rho[m_]);
         }
-        if (!runBa(ids, feat, pm, n, s, scale, focal, first.R, ba)) {
-            r.fallbackReason = "ba-failed";
-            break;
+        std::vector<double> d;
+        for (const auto& p : pts) d.push_back(cv::norm(p));
+        if (d.empty()) return;
+        std::nth_element(d.begin(), d.begin() + d.size() / 2, d.end());
+        unit = d[d.size() / 2];
+    };
+    if (ok && o.parallax) {
+        triangulate();
+        // Per-match depths absorb noise, so a lever is always found; below this (relative to the scene) it
+        // is not worth the focal/lever ambiguity it brings, and a pure rotation is the better model.
+        double spread = 0;
+        for (size_t a = 0; a < ids.size(); ++a) spread = std::max(spread, cv::norm(ba->centre((int)a)));
+        if (pts.size() < 50 || spread / unit < 0.03) {
+            ok = solveAll(false);
+            pts.clear();
         }
-        std::vector<int> keep;
-        for (size_t a = 0; a < ids.size(); ++a) {
-            if (angleDeg(ba.R[a], s.frames[ids[a]].R) > o.maxCameraDeviationDeg)
-                r.cameras[ids[a]].reason = "ba-deviates-from-sensor";
-            else
-                keep.push_back(ids[a]);
-        }
-        if (keep.size() == ids.size()) {
-            ok = true;
-            break;
-        }
-        ids = keep;  // the outlier also pulled its neighbours, so solve again without it
     }
-    if (ok && ba.residualDeg > o.maxRayResidualDeg) {
-        ok = false;
-        r.fallbackReason = "ba-residual";
+    double rmsDeg = 0;
+    if (ok) {
+        std::vector<double> e = ba->errors();
+        double sq = 0;
+        for (double v : e) sq += v * v;
+        const double f = ba->focal();
+        rmsDeg = e.empty() ? 0 : std::sqrt(sq / e.size()) / f * kDeg;
+        if (e.empty() || rmsDeg > o.maxRayResidualDeg) {
+            ok = false;
+            r.fallbackReason = "ba-residual";
+        }
     }
     if (!ok && r.fallbackReason.empty()) r.fallbackReason = "too-few-registered-cameras";
-    r.baRayResidualDeg = ok ? ba.residualDeg : 0;
+    r.baRayResidualDeg = ok ? rmsDeg : 0;
 
     if (ok) {
         r.fallbackReason.clear();
-        r.focal = focal / scale;
+        r.focal = ba->focal() / scale;
         r.focalSource = "bundle-adjusted";
         for (size_t a = 0; a < ids.size(); ++a) {
-            r.cameras[ids[a]].rotation = ba.R[a];
+            r.cameras[ids[a]].rotation = ba->rot((int)a);
             r.cameras[ids[a]].source = "bundle-adjusted";
             r.cameras[ids[a]].reason.clear();
+        }
+        // Unregistered frames (bare ceilings) keep their sensor rotation, but with the gyro drift the
+        // registered frames around them in capture order were corrected for, or they would jump against them.
+        for (int i = 0; i < n; ++i) {
+            if (ba->cam[i] >= 0) continue;
+            int before = -1, after = -1;
+            for (size_t a = 0; a < ids.size(); ++a) {
+                if (ids[a] < i) before = (int)a;
+                if (ids[a] > i && after < 0) after = (int)a;
+            }
+            cv::Vec3d w = before < 0 ? ba->w[after] : after < 0 ? ba->w[before] : cv::Vec3d();
+            if (before >= 0 && after >= 0) {
+                double t = double(i - ids[before]) / (ids[after] - ids[before]);
+                w = ba->w[before] * (1 - t) + ba->w[after] * t;
+            }
+            r.cameras[i].rotation = expRot(w) * s.frames[i].R;
+        }
+
+        if (!pts.empty()) {
+            for (auto& p : pts) p /= unit;
+            r.bodyOffset = Ba::B(ba->g) / unit;
+            r.lever = Ba::L(ba->g) / unit;
+            r.depth = depthGrid(pts);
+            for (int i = 0; i < n; ++i) {
+                const cv::Matx33d& R = r.cameras[i].rotation;
+                r.cameras[i].centre = headingOf(R) * r.bodyOffset + R * r.lever;
+            }
         }
     } else {
         for (auto& c : r.cameras) c.reason = c.reason.empty() ? r.fallbackReason : c.reason;

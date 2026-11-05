@@ -30,8 +30,10 @@ struct Piece {
 
 Camera scaledCamera(const Session& s, const Result& r, int i, double k) {
     double f = r.focal * k;
-    return {r.cameras[i].rotation, f, f * s.fy / s.fx, (s.cx + 0.5) * k - 0.5, (s.cy + 0.5) * k - 0.5,
-            (int)std::lround(s.width * k), (int)std::lround(s.height * k)};
+    const cv::Matx33d& R = r.cameras[i].rotation;
+    return {R, f, f * s.fy / s.fx, (s.cx + 0.5) * k - 0.5, (s.cy + 0.5) * k - 0.5,
+            (int)std::lround(s.width * k), (int)std::lround(s.height * k), r.cameras[i].centre,
+            r.depth.empty() ? nullptr : &r.depth};
 }
 
 void warpPiece(const cv::Mat& img, const Camera& cam, const Canvas& c, const cv::Rect& roi, cv::Mat& out,
@@ -182,6 +184,33 @@ void compose(const Session& s, const Options& o, Reporter& rep, Result& r, cv::M
 
 void fillHoles(cv::Mat& img, const cv::Mat& mask) {
     if (cv::countNonZero(mask) == (int)mask.total()) return;
+    // The float pyramids below cost ~1 GB at 6144 wide; work only on the band of rows with holes, plus
+    // enough context above and below for the coarse levels.
+    cv::Mat rowMin;
+    cv::reduce(mask, rowMin, 1, cv::REDUCE_MIN);
+    int y0 = mask.rows, y1 = 0;
+    for (int y = 0; y < mask.rows; ++y)
+        if (rowMin.at<uchar>(y) == 0) y0 = std::min(y0, y), y1 = y + 1;
+    const int margin = mask.rows / 8;
+    y0 = std::max(0, y0 - margin);
+    y1 = std::min(mask.rows, y1 + margin);
+    if (y0 > 0 || y1 < mask.rows) {
+        cv::Mat band = img.rowRange(y0, y1);
+        fillHoles(band, mask.rowRange(y0, y1));
+        return;
+    }
+    // The fill is a blur anyway: compute it at quarter resolution (only fully covered cells count as known).
+    if (img.cols > 1024) {
+        cv::Mat small, smallMask, up;
+        cv::Size sz(img.cols / 4, std::max(1, img.rows / 4));
+        cv::resize(img, small, sz, 0, 0, cv::INTER_AREA);
+        cv::resize(mask, smallMask, sz, 0, 0, cv::INTER_AREA);
+        smallMask = smallMask == 255;
+        fillHoles(small, smallMask);
+        cv::resize(small, up, img.size(), 0, 0, cv::INTER_LINEAR);
+        up.copyTo(img, mask == 0);
+        return;
+    }
     // Push-pull: average the known pixels down a pyramid, then pull coarse colours back into the holes.
     // Horizontal wrap padding keeps the fill continuous across lon +-180.
     const int padx = img.cols / 8;

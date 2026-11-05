@@ -132,8 +132,21 @@ struct Spec {
     double yawDriftDeg = 0;                   // grows linearly from 0 at the first frame
     int textureless = -1;                     // this frame is a uniform grey image
     std::pair<int, int> swapImages{-1, -1};   // these two frames get each other's pixels
+    // Handheld capture: the camera sits this far in front of the body axis (in its heading), and the scene is
+    // a room around the pivot instead of a sphere at infinity, so the frames have parallax. The texture is
+    // painted on the walls by direction from the pivot, so the true panorama is unchanged.
+    double bodyOffset = 0;
     uint64_t seed = 1;
 };
+
+// Distance from c along unit ray d to the walls of a room around the pivot (c inside it).
+inline double roomHit(const cv::Vec3d& c, const cv::Vec3d& d) {
+    const cv::Vec3d lo(-2.0, -1.6, -1.2), hi(2.4, 1.8, 1.0);
+    double t = 1e9;
+    for (int k = 0; k < 3; ++k)
+        if (std::abs(d[k]) > 1e-12) t = std::min(t, ((d[k] > 0 ? hi[k] : lo[k]) - c[k]) / d[k]);
+    return t;
+}
 
 // 9 + 7 + 7 + zenith + nadir for a 60 deg wide portrait camera. Without nadir the lower ring is raised, which
 // leaves a hole below about -72 deg.
@@ -194,11 +207,15 @@ inline Session generate(const std::string& dir, const Spec& sp) {
         cv::Mat img(sp.height, sp.width, CV_8UC3, cv::Scalar::all(128));
         if (i != sp.textureless) {
             const cv::Matx33d R = out.truth[src];
+            const double yaw = sp.shots[src].first * kPi / 180;
+            const cv::Vec3d c = cv::Vec3d(std::cos(yaw), std::sin(yaw), 0) * sp.bodyOffset;
             cv::parallel_for_(cv::Range(0, sp.height), [&](const cv::Range& r) {
                 for (int v = r.start; v < r.end; ++v)
                     for (int u = 0; u < sp.width; ++u) {
                         cv::Vec3d d = R * cv::Vec3d((u - cx) / f, (v - cy) / f, 1);
-                        img.at<cv::Vec3b>(v, u) = out.texture(d * (1 / cv::norm(d)));
+                        d *= 1 / cv::norm(d);
+                        if (sp.bodyOffset > 0) d = cv::normalize(c + d * roomHit(c, d));
+                        img.at<cv::Vec3b>(v, u) = out.texture(d);
                     }
             });
         }

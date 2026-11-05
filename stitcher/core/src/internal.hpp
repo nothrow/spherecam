@@ -1,6 +1,8 @@
 #pragma once
 
+#include <memory>
 #include <stdexcept>
+#include <tuple>
 #include <string>
 #include <vector>
 
@@ -51,6 +53,12 @@ struct Camera {
     cv::Matx33d R;  // R_world_from_camera
     double fx, fy, cx, cy;
     int width, height;
+    cv::Vec3d C{0, 0, 0};             // centre relative to the pivot
+    const cv::Mat* depth = nullptr;   // Result::depth; null: scene at infinity
+
+    // Camera-frame direction of the scene point seen from the pivot in direction d; (gu, gv) are d's
+    // coordinates on the depth grid.
+    cv::Vec3d look(const cv::Vec3d& d, double gu, double gv) const;
 };
 
 // Canvas x may be outside [0, W): the canvas extends periodically so images crossing lon +-180 stay whole.

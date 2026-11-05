@@ -1,4 +1,4 @@
-foreach(t convention cv_convention robust fallback nonadir emulator)
+foreach(t convention cv_convention robust fallback nonadir emulator parallax)
   add_executable(test_${t} test_${t}.cpp)
   target_link_libraries(test_${t} PRIVATE spherestitch)
   add_test(NAME ${t} COMMAND test_${t})
