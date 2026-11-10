@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <string>
 
+#include <opencv2/imgcodecs.hpp>
+
 #include "spherestitch/stitch.hpp"
 
 namespace fs = std::filesystem;
@@ -41,6 +43,13 @@ int main(int argc, char** argv) {
     std::string reportPath = fs::path(out).replace_extension(".json").string();
     spherestitch::writeReport(r, reportPath);
     if (!o.debugDir.empty()) spherestitch::writeReport(r, (fs::path(o.debugDir) / "report.json").string());
+    if (!o.debugDir.empty() && !r.depth.empty()) {
+        cv::FileStorage f((fs::path(o.debugDir) / "depth.json").string(), cv::FileStorage::WRITE);
+        f << "depth" << r.depth;
+        cv::Mat vis;
+        cv::divide(255.0 / 4, r.depth, vis, CV_8U);  // inverse distance, white = a quarter of the median
+        cv::imwrite((fs::path(o.debugDir) / "depth.png").string(), vis);
+    }
     if (!r.ok) {
         std::fprintf(stderr, "\nerror: %s\n", r.error.c_str());
         return 1;

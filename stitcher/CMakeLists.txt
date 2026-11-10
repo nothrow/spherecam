@@ -12,7 +12,7 @@ set(OpenCV_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.deps/opencv/lib/cmake/opencv5" CACH
 find_package(OpenCV 5.0.0 EXACT REQUIRED COMPONENTS core imgproc imgcodecs features flann geometry stitching)
 
 add_library(spherestitch STATIC
-  core/src/session.cpp core/src/geometry.cpp core/src/register.cpp core/src/compose.cpp core/src/stitch.cpp)
+  core/src/session.cpp core/src/geometry.cpp core/src/register.cpp core/src/align.cpp core/src/compose.cpp core/src/stitch.cpp)
 target_include_directories(spherestitch PUBLIC core/include)
 target_link_libraries(spherestitch PUBLIC ${OpenCV_LIBS})
 target_compile_options(spherestitch PRIVATE -Wall -Wextra)

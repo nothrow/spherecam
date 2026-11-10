@@ -29,9 +29,10 @@ Result stitch(const std::string& sessionDir, const std::string& outPath, const O
         Session s = loadSession(sessionDir);
         rep.end();
 
-        registerCameras(s, o, rep, r);
+        std::vector<cv::Mat> gray;
+        registerCameras(s, o, rep, r, gray);
         cv::Mat out;
-        compose(s, o, rep, r, out);
+        compose(s, o, rep, r, gray, out);
         // No EXIF, so the output carries no orientation tag.
         std::string xmp = gpanoXmp(out.cols, out.rows);
         std::vector<cv::Mat> meta{cv::Mat(1, (int)xmp.size(), CV_8U, xmp.data())};
@@ -68,7 +69,7 @@ void writeReport(const Result& r, const std::string& path) {
     fs << "]" << "pairs" << "[";
     for (const auto& p : r.pairs)
         fs << "{" << "i" << p.i << "j" << p.j << "inliers" << p.inliers << "confidence" << p.confidence
-           << "relativeErrorDeg" << p.relativeErrorDeg << "accepted" << p.accepted << "}";
+           << "relativeErrorDeg" << p.relativeErrorDeg << "accepted" << p.accepted << "guided" << p.guided << "}";
     fs << "]" << "phaseSeconds" << "{";
     for (const auto& [name, sec] : r.phaseSeconds) fs << name << sec;
     fs << "}";

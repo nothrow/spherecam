@@ -42,6 +42,7 @@ struct PairResult {
     int i = 0, j = 0, inliers = 0;
     double confidence = 0, relativeErrorDeg = 0;
     bool accepted = false;
+    bool guided = false;            // matched in the second round, along the epipolar lines of the first solution
 };
 
 struct Result {
@@ -54,8 +55,9 @@ struct Result {
     std::string focalSource;        // "manifest" or "bundle-adjusted"
     double manifestFocal = 0;
     double baRayResidualDeg = 0;
-    // Handheld camera motion: centre_i = heading_i * bodyOffset + rotation_i * lever, in units of the median
-    // scene distance from the pivot. depth: scene distance from the pivot on a coarse equirect grid
+    // Handheld camera motion: centre_i = heading_i * bodyOffset + rotation_i * lever + a small offset per
+    // frame (CameraResult::centre has the sum), in units of the median scene distance from the pivot.
+    // depth: scene distance from the pivot on a coarse equirect grid
     // (CV_32F); empty when the centres are too close together to matter, then the warp is a pure rotation.
     cv::Vec3d bodyOffset{0, 0, 0}, lever{0, 0, 0};
     cv::Mat depth;

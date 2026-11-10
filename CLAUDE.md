@@ -45,13 +45,21 @@ developed and tested on desktop against sessions captured on the phone. Therefor
 Android specifics are resolved in capture before the manifest is written.
 
 ## Decisions for later phases (context only, do not implement now)
-- On-device stitching: SIFT matching only between neighbours (fundamental-matrix RANSAC),
-  own bundle adjustment of a handheld capture (rotations tied to the sensors, camera centre =
-  body offset in the heading frame + lever in the camera frame, per-match depth via Schur
-  complement), fallback to pure sensor rotations, warp to equirect through a coarse depth map
-  (floor/ceiling planes + sphere corrected by triangulated points), exposure compensation,
-  seam finder, multiband blend. Real captures have strong parallax: people turn their body,
-  not the phone (test sessions in `captures/`).
+- On-device stitching: SIFT matching only between neighbours (fundamental-matrix RANSAC), then a
+  second matching round along the epipolar lines of the first solution (low-texture frames).
+  Own bundle adjustment of a handheld capture: rotations tied to the sensors (tilt tightly, to
+  gravity; yaw loosely), camera centre = body offset in the heading frame + lever in the camera
+  frame + a small free offset per frame, per-match depth via Schur complement. Fallback to pure
+  sensor rotations. Warp to equirect through a coarse, smooth depth map (floor/ceiling planes +
+  sphere corrected by triangulated points), then local alignment: neighbours are block-matched
+  in their overlaps and each shifted half-way by a smooth flow field. Exposure compensation,
+  seam finder (seams kept away from image borders), multiband blend.
+- Real captures have strong parallax: people turn their body, not the phone (test sessions in
+  `captures/`). Depth and flow fields must stay smooth: any wiggle bends straight edges, which
+  looks worse than a small misalignment. A dense plane-sweep depth was tried and dropped for
+  that reason.
+- Stitch quality is measured with `tools/ghost_metric.py <session> <debug dir>` (misalignment in
+  degrees on matches the stitcher did not see) and always checked by eye as well.
 - Output 6144×3072 JPEG with GPano XMP, saved to Photos via MediaStore.
 - With nadir disabled, the bottom hole is filled by blurred stretching of edge pixels;
   output is always full-size 2:1.
@@ -77,9 +85,13 @@ Android specifics are resolved in capture before the manifest is written.
 
 ---
 
-# CURRENT PHASE: viewer
+# CURRENT PHASE: stitch quality
 
-Full brief: `docs/prompts/phase3-viewer.md` (read it before starting). Summary:
+The stitcher misaligns real handheld captures; making it stitch better comes before anything else.
+Reference session: `captures/5ecd8d20-55b2-420e-b330-f58003f4204c` (open wardrobe close to the
+camera). Known leftover: objects within arm's reach in front of a far background (open drawer).
+
+The viewer (phase 3) is merged; its brief is `docs/prompts/phase3-viewer.md`. Summary:
 - New `:viewer` module with a separate `ViewerActivity` (landscape allowed, rest of app portrait): GLES 3 ray-casting equirect viewer (gyro + drag + pinch), honours GPano `CroppedArea*`,
   same equirect convention as `tools/preview_from_manifest.py`.
 - Entry points: Detail ("View"), Home ("Open 360 photo" via Photo Picker), `ACTION_VIEW` for JPEG.
@@ -88,4 +100,4 @@ Full brief: `docs/prompts/phase3-viewer.md` (read it before starting). Summary:
 - Previous briefs: `docs/phases/phase1-capture.md`, `docs/prompts/phase2-stitcher.md`.
 
 ## Out of scope for this phase
-Parallax-aware stitching and capture hints (phase 4), compass, icon and branding.
+Compass, icon and branding.

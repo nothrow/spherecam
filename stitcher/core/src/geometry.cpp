@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <opencv2/imgproc.hpp>
+
 #include "internal.hpp"
 
 namespace spherestitch {
@@ -53,6 +55,22 @@ cv::Vec3d Camera::look(const cv::Vec3d& d, double gu, double gv) const {
     return R.t() * (d * t - C);
 }
 
+Camera scaledCamera(const Session& s, const Result& r, int i, double k) {
+    double f = r.focal * k;
+    const cv::Matx33d& R = r.cameras[i].rotation;
+    return {R, f, f * s.fy / s.fx, (s.cx + 0.5) * k - 0.5, (s.cy + 0.5) * k - 0.5,
+            (int)std::lround(s.width * k), (int)std::lround(s.height * k), r.cameras[i].centre,
+            r.depth.empty() ? nullptr : &r.depth};
+}
+
+cv::Mat blurWrap(const cv::Mat& a, double sigma) {
+    const int pad = std::min(a.cols, (int)(4 * sigma));
+    cv::Mat p, out;
+    cv::copyMakeBorder(a, p, 0, 0, pad, pad, cv::BORDER_WRAP);
+    cv::GaussianBlur(p, out, cv::Size(), sigma, sigma, cv::BORDER_REPLICATE);
+    return out.colRange(pad, pad + a.cols).clone();
+}
+
 void buildMap(const Camera& cam, int W, int H, const cv::Rect& roi, cv::Mat& mapx, cv::Mat& mapy) {
     mapx.create(roi.size(), CV_32F);
     mapy.create(roi.size(), CV_32F);
@@ -72,7 +90,22 @@ void buildMap(const Camera& cam, int W, int H, const cv::Rect& roi, cv::Mat& map
             float* mx = mapx.ptr<float>(y);
             float* my = mapy.ptr<float>(y);
             for (int x = 0; x < roi.width; ++x) {
-                cv::Vec3d c = cam.look(cv::Vec3d(cl * clon[x], cl * slon[x], sl), gu[x], gv);
+                cv::Vec3d c;
+                if (cam.flow) {
+                    const int FW = cam.flow->cols, FH = cam.flow->rows;
+                    double fx = (roi.x + x + 0.5) / W * FW - 0.5, fy = (roi.y + y + 0.5) / H * FH - 0.5;
+                    double x0 = std::floor(fx), y0 = std::floor(fy), tx = fx - x0, ty = fy - y0;
+                    int u0 = (((int)x0 % FW) + FW) % FW, u1 = (u0 + 1) % FW;
+                    int v0 = std::clamp((int)y0, 0, FH - 1), v1 = std::clamp((int)y0 + 1, 0, FH - 1);
+                    const cv::Vec2f* f0 = cam.flow->ptr<cv::Vec2f>(v0);
+                    const cv::Vec2f* f1 = cam.flow->ptr<cv::Vec2f>(v1);
+                    cv::Vec2f f = (1 - ty) * ((1 - tx) * f0[u0] + tx * f0[u1]) + ty * ((1 - tx) * f1[u0] + tx * f1[u1]);
+                    double lon = kPi - (roi.x + x + 0.5) / W * 2 * kPi + f[0], la = lat + f[1];
+                    c = cam.look(cv::Vec3d(std::cos(la) * std::cos(lon), std::cos(la) * std::sin(lon), std::sin(la)),
+                                 (kPi - lon) / (2 * kPi) * GW - 0.5, (kPi / 2 - la) / kPi * GH - 0.5);
+                } else {
+                    c = cam.look(cv::Vec3d(cl * clon[x], cl * slon[x], sl), gu[x], gv);
+                }
                 float u = -1, v = -1;
                 if (c[2] > 1e-6) {
                     double uu = cam.fx * c[0] / c[2] + cam.cx;

@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
+#include <opencv2/geometry/2d.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/stitching/detail/blenders.hpp>
@@ -28,14 +30,6 @@ struct Piece {
     cv::Mat img, mask;
 };
 
-Camera scaledCamera(const Session& s, const Result& r, int i, double k) {
-    double f = r.focal * k;
-    const cv::Matx33d& R = r.cameras[i].rotation;
-    return {R, f, f * s.fy / s.fx, (s.cx + 0.5) * k - 0.5, (s.cy + 0.5) * k - 0.5,
-            (int)std::lround(s.width * k), (int)std::lround(s.height * k), r.cameras[i].centre,
-            r.depth.empty() ? nullptr : &r.depth};
-}
-
 void warpPiece(const cv::Mat& img, const Camera& cam, const Canvas& c, const cv::Rect& roi, cv::Mat& out,
                cv::Mat& mask) {
     cv::Mat mx, my;
@@ -62,7 +56,8 @@ cv::Mat colorLabels(const cv::Mat& label) {
 
 }  // namespace
 
-void compose(const Session& s, const Options& o, Reporter& rep, Result& r, cv::Mat& out) {
+void compose(const Session& s, const Options& o, Reporter& rep, Result& r, const std::vector<cv::Mat>& gray,
+             cv::Mat& out) {
     const int n = (int)s.frames.size();
     const int W = o.width, H = W / 2;
     const int Ws = std::min(o.seamWidth, W) & ~1, Hs = Ws / 2;
@@ -71,11 +66,20 @@ void compose(const Session& s, const Options& o, Reporter& rep, Result& r, cv::M
 
     // Warp at seam resolution: oversample the canvas 2x at most.
     rep.begin(Phase::Warp);
+    std::vector<cv::Mat> flows;
+    if (!r.depth.empty()) flows = alignLocally(s, r, gray);
+    if (!o.debugDir.empty() && !flows.empty()) {
+        FILE* f = std::fopen((o.debugDir + "/flows.bin").c_str(), "wb");
+        for (const cv::Mat& m : flows) std::fwrite(m.data, 1, m.total() * m.elemSize(), f);
+        std::fclose(f);
+    }
+    rep.step(0.3);
     const double k = std::min(1.0, 2 * Ws / (2 * CV_PI) / r.focal);
     std::vector<Piece> pieces;
     for (int i = 0; i < n; ++i) {
         cv::Mat img = readImage(s.frames[i].path, s), small;
         Camera cam = scaledCamera(s, r, i, k);
+        if (!flows.empty()) cam.flow = &flows[i];
         cv::resize(img, small, cv::Size(cam.width, cam.height), 0, 0, cv::INTER_AREA);
         for (const cv::Rect& roi : footprint(cam, low.W, low.H, low.pad)) {
             Piece p{i, roi, {}, {}};
@@ -113,20 +117,35 @@ void compose(const Session& s, const Options& o, Reporter& rep, Result& r, cv::M
 
     rep.begin(Phase::Seams);
     std::vector<cv::UMat> fimgs(pieces.size()), smasks(pieces.size());
+    std::vector<cv::Mat> dists(pieces.size());
+    const float seamMargin = 0.01f * low.W;  // 3.6 deg
     for (size_t p = 0; p < pieces.size(); ++p) {
         cv::Mat f;
         cv::Vec3d g = r.cameras[pieces[p].cam].gain;
         pieces[p].img.convertTo(f, CV_32FC3);
         cv::multiply(f, cv::Scalar(g[0], g[1], g[2]), f);
         f.copyTo(fimgs[p]);
-        pieces[p].mask.copyTo(smasks[p]);
+        // With frames that differ in brightness everywhere, the cheapest cut runs along an image border,
+        // where the blender has nothing on the other side to blend with. Keep the seams a blend width inside.
+        cv::distanceTransform(pieces[p].mask, dists[p], cv::DIST_L2, 3);
+        cv::Mat(dists[p] > seamMargin).copyTo(smasks[p]);
     }
     dt::GraphCutSeamFinder(dt::GraphCutSeamFinderBase::COST_COLOR_GRAD).find(fimgs, corners, smasks);
     rep.step(0.8);
     cv::Mat label(low.H, low.W + 2 * low.pad, CV_32S, cv::Scalar(-1));
+    cv::Mat depthIn(label.size(), CV_32F, cv::Scalar(0));  // how far inside its frame the owner of a pixel is
     for (size_t p = 0; p < pieces.size(); ++p) {
         cv::Rect at = pieces[p].roi + cv::Point(low.pad, 0);
-        label(at).setTo(pieces[p].cam, smasks[p].getMat(cv::ACCESS_READ));
+        cv::Mat own = smasks[p].getMat(cv::ACCESS_READ);
+        label(at).setTo(pieces[p].cam, own);
+        depthIn(at).setTo(1e6, own);
+    }
+    // Pixels only the margins cover go to the frame they are deepest in.
+    for (size_t p = 0; p < pieces.size(); ++p) {
+        cv::Rect at = pieces[p].roi + cv::Point(low.pad, 0);
+        cv::Mat better = dists[p] > depthIn(at);
+        label(at).setTo(pieces[p].cam, better);
+        dists[p].copyTo(depthIn(at), better);
     }
     makePeriodic(label, low.W, low.pad);
     if (!o.debugDir.empty()) cv::imwrite(o.debugDir + "/seams.png", colorLabels(label));
@@ -154,6 +173,7 @@ void compose(const Session& s, const Options& o, Reporter& rep, Result& r, cv::M
         // Dilate so low-resolution seam edges never leave unowned full-resolution pixels.
         cv::dilate(own, own, kernel);
         Camera cam = scaledCamera(s, r, i, 1.0);
+        if (!flows.empty()) cam.flow = &flows[i];
         for (const cv::Rect& roi : footprint(cam, full.W, full.H, full.pad)) {
             cv::Mat warped, valid;
             warpPiece(img, cam, full, roi, warped, valid);
